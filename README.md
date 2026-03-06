@@ -265,8 +265,8 @@ class Pet extends Animal {
 ### Clone & patch
 
 ```ts
-const copy    = clone(User, user);                // deep-independent copy
-const updated = patch(User, user, { age: 37 });   // non-destructive update
+const copy    = clone(User, user);              // deep-independent copy
+const updated = patch(User, user, { age: 37 }); // non-destructive update
 ```
 
 ---
