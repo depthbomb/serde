@@ -54,6 +54,51 @@ const json  = toJSON(user, 2); // pretty-printed JSON string
 
 ---
 
+## Enums
+
+Enums are automatically detected and validated. All TypeScript enum types are supported: string enums, numeric enums, and heterogeneous enums.
+
+```ts
+enum Status {
+	Active = 'ACTIVE',
+	Inactive = 'INACTIVE'
+}
+
+enum Priority {
+	Low = 0,
+	Medium = 1,
+	High = 2
+}
+
+@Serializable()
+class Task {
+	@JSONProperty()
+	title!: string;
+
+	@JSONProperty({ type: () => Status })
+	status!: Status;
+
+	@JSONProperty({ type: () => Priority })
+	priority!: Priority;
+}
+
+// Deserialize
+const task = deserialize(Task, {
+	title: 'Fix bug',
+	status: 'ACTIVE',
+	priority: 1
+});
+console.log(task.status);   // 'ACTIVE'
+console.log(task.priority); // 1
+
+// Serialize
+const plain = serialize(task); // { title: 'Fix bug', status: 'ACTIVE', priority: 1 }
+```
+
+Enum values are validated during deserialization; invalid values throw a `SerializationError`.
+
+---
+
 ## Decorators
 
 ### `@Serializable()`
@@ -124,6 +169,7 @@ toJSON<T>(instance: T, space?: number): string
 clone<T>(ctor: Constructor<T>, instance: T): T
 patch<T>(ctor: Constructor<T>, instance: T, partial: object): T
 isSerializable(ctor: Constructor): boolean
+isEnum(obj: unknown): boolean
 ```
 
 ### Deserialization Options

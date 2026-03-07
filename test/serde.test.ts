@@ -12,6 +12,7 @@ import {
 	fromJSON,
 	clone,
 	isSerializable,
+	isEnum,
 	patch,
 } from '../src/serde';
 import { SerializationError } from '../src/errors';
@@ -245,5 +246,151 @@ describe('miscellaneous behaviours', () => {
 		expect(updated.firstName).toBe('Alice');
 		expect(updated.age).toBe(26);
 		expect(updated).not.toBe(u); // returns new instance
+	});
+});
+
+// Enums
+
+enum StringStatus {
+	Active = 'ACTIVE',
+	Inactive = 'INACTIVE',
+	Pending = 'PENDING'
+}
+
+enum NumericPriority {
+	Low = 0,
+	Medium = 1,
+	High = 2
+}
+
+enum HeterogeneousKind {
+	Success = 'SUCCESS',
+	Failed = 1,
+	Warning = 'WARNING'
+}
+
+@Serializable()
+class Task {
+	@JSONProperty()
+	title!: string;
+
+	@JSONProperty({ type: () => StringStatus })
+	status!: StringStatus;
+
+	@JSONProperty({ type: () => NumericPriority })
+	priority!: NumericPriority;
+
+	@JSONProperty({ type: () => HeterogeneousKind, optional: true })
+	kind?: HeterogeneousKind;
+}
+
+@Serializable()
+class TaskList {
+	@JSONProperty({ type: () => Task, isArray: true })
+	tasks!: Task[];
+
+	@JSONProperty({ type: () => StringStatus, isMap: true })
+	statusLookup!: Map<string, StringStatus>;
+}
+
+describe('enum support', () => {
+	test('string enum deserializes and serializes', () => {
+		const raw = { title: 'Fix bug', status: 'ACTIVE', priority: 1 };
+		const task = deserialize(Task, raw);
+		expect(task.status).toBe(StringStatus.Active);
+		expect(task.priority).toBe(NumericPriority.Medium);
+		expect(serialize(task)).toEqual(raw);
+	});
+
+	test('numeric enum round-trips', () => {
+		const task = new Task();
+		task.title = 'Test';
+		task.status = StringStatus.Pending;
+		task.priority = NumericPriority.High;
+		const plain = serialize(task);
+		expect(plain.priority).toBe(2);
+		const back = deserialize(Task, plain);
+		expect(back.priority).toBe(NumericPriority.High);
+	});
+
+	test('heterogeneous enum works', () => {
+		const raw = { title: 'Task', status: 'ACTIVE', priority: 0, kind: 'SUCCESS' };
+		const task = deserialize(Task, raw);
+		expect(task.kind).toBe(HeterogeneousKind.Success);
+		expect(serialize(task)).toEqual(raw);
+	});
+
+	test('heterogeneous numeric enum value', () => {
+		const raw = { title: 'Task', status: 'ACTIVE', priority: 0, kind: 1 };
+		const task = deserialize(Task, raw);
+		expect(task.kind).toBe(HeterogeneousKind.Failed);
+		expect(serialize(task)).toEqual(raw);
+	});
+
+	test('invalid enum value throws', () => {
+		expect(() => deserialize(Task, { title: 'Task', status: 'INVALID', priority: 0 })).toThrow(SerializationError);
+	});
+
+	test('enum in array', () => {
+		const raw = {
+			tasks: [
+				{ title: 'Task 1', status: 'ACTIVE', priority: 0 },
+				{ title: 'Task 2', status: 'PENDING', priority: 2 }
+			],
+			statusLookup: { active: 'ACTIVE', pending: 'PENDING' }
+		};
+		const list = deserialize(TaskList, raw);
+		expect(list.tasks[0].status).toBe(StringStatus.Active);
+		expect(list.tasks[1].status).toBe(StringStatus.Pending);
+		expect(serialize(list)).toEqual(raw);
+	});
+
+	test('enum in map', () => {
+		const raw = {
+			tasks: [],
+			statusLookup: { a: 'ACTIVE', b: 'INACTIVE' }
+		};
+		const list = deserialize(TaskList, raw);
+		expect(list.statusLookup.get('a')).toBe(StringStatus.Active);
+		expect(list.statusLookup.get('b')).toBe(StringStatus.Inactive);
+		expect(serialize(list)).toEqual(raw);
+	});
+
+	test('invalid enum in array throws', () => {
+		expect(() => deserialize(TaskList, {
+			tasks: [{ title: 'Task', status: 'NOPE', priority: 0 }],
+			statusLookup: {}
+		})).toThrow(SerializationError);
+	});
+
+	test('isEnum detects enums', () => {
+		expect(isEnum(StringStatus)).toBe(true);
+		expect(isEnum(NumericPriority)).toBe(true);
+		expect(isEnum(HeterogeneousKind)).toBe(true);
+		expect(isEnum({ foo: 'bar' })).toBe(false);
+		expect(isEnum(Task)).toBe(false);
+		expect(isEnum([])).toBe(false);
+		expect(isEnum(null)).toBe(false);
+	});
+
+	test('enum with toJSON/fromJSON', () => {
+		const task = new Task();
+		task.title = 'Test';
+		task.status = StringStatus.Active;
+		task.priority = NumericPriority.High;
+		const json = toJSON(task);
+		const back = fromJSON(Task, json);
+		expect(back.status).toBe(StringStatus.Active);
+		expect(back.priority).toBe(NumericPriority.High);
+	});
+
+	test('enum clone preserves values', () => {
+		const task = new Task();
+		task.title = 'Original';
+		task.status = StringStatus.Inactive;
+		task.priority = NumericPriority.Low;
+		const cloned = clone(Task, task);
+		expect(cloned.status).toBe(StringStatus.Inactive);
+		expect(cloned.priority).toBe(NumericPriority.Low);
 	});
 });

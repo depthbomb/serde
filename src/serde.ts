@@ -12,7 +12,10 @@ interface IPropertyMeta<V = unknown> {
 export type Constructor<T = unknown> = new (...args: unknown[]) => T;
 
 /** Lazy type reference, avoids circular-import issues */
-export type TypeFn<T = unknown> = () => Constructor<T>;
+export type TypeFn<T = unknown> = () => Constructor<T> | Record<string, string | number>;
+
+/** TypeScript enum type */
+export type EnumType = Record<string, string | number>;
 
 /** What to do when a property value is null / undefined */
 export type NullableStrategy = 'ignore' | 'null' | 'error';
@@ -39,11 +42,12 @@ export interface IJSONPropertyOptions<T = unknown> {
 	name?: string;
 
 	/**
-	 * Explicit type constructor for nested objects.
-	 * Use a thunk `() => MyClass` to support forward / circular references.
+	 * Explicit type constructor for nested objects, or an enum type.
+	 * Use a thunk `() => MyClass` or `() => MyEnum` to support forward / circular references.
 	 * @example { type: () => Address }
+	 * @example { type: () => Status } // enum
 	 */
-	type?: TypeFn<T> | Constructor<T>;
+	type?: TypeFn<T> | Constructor<T> | EnumType;
 
 	/**
 	 * Treat the property as an array of `type`.
@@ -113,8 +117,48 @@ const T = '__serde_t__';
 
 const PRIMITIVES = new Set<unknown>([String, Number, Boolean, BigInt]);
 
-/** Collect all @JSONProperty metas walking the prototype chain (child wins). */
-// cache to avoid walking the prototype chain on every (de)serialization
+/** Detect if a value is a TypeScript enum object. */
+export function isEnum(obj: unknown): boolean {
+	if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
+		return false;
+	}
+
+	if (obj instanceof Map || obj instanceof Set || obj instanceof Date) {
+		return false;
+	}
+
+	const keys = Object.keys(obj);
+	if (keys.length < 2) {
+		return false;
+	}
+
+	const objRecord = obj as Record<string, unknown>;
+
+	for (const k of keys) {
+		const v = objRecord[k];
+		const isValidEnumValue = typeof v === 'string' || typeof v === 'number';
+		if (!isValidEnumValue) {
+			return false;
+		}
+	}
+
+	// All properties are string or number primitives, and there are at least 2
+	return true;
+}
+
+/** Get all valid values from an enum object */
+function getEnumValues(enumObj: Record<string, string | number>): (string | number)[] {
+	const values = new Set<string | number>();
+	for (const v of Object.values(enumObj)) {
+		if (typeof v === 'string' || typeof v === 'number') {
+			values.add(v);
+		}
+	}
+
+	return Array.from(values);
+}
+
+/** Collect all \@JSONProperty metas walking the prototype chain (child wins). */
 const metasCache = new WeakMap<Constructor, IPropertyMeta[]>();
 
 function ownMetas(ctor: AnyFn): IPropertyMeta[] {
@@ -182,29 +226,27 @@ function coercePrim(value: unknown, ctor: Constructor, path: string): unknown {
 /**
  * Resolve the concrete constructor from a type option that may be:
  *   - null / undefined → no explicit type
- *   - () => MyClass    → thunk (forward reference)
+ *   - () => MyClass    → thunk (forward reference, can return constructor or enum)
  *   - MyClass          → direct constructor reference
+ *   - EnumType         → enum object
  */
-function resolveType<V>(options: Required<IJSONPropertyOptions<V>>): Constructor<V> | null {
+function resolveType<V>(options: Required<IJSONPropertyOptions<V>>): Constructor<V> | Record<string, string | number> | null {
 	const t = options.type;
 	if (!t) {
 		return null;
 	}
 
-	// A thunk is a zero-arg arrow / function whose return value is itself a constructor. We detect
-	// this by checking if t.prototype is absent or empty (arrow functions have no prototype
-	// property).
 	const isArrow = typeof t === 'function' && !Object.prototype.hasOwnProperty.call(t, 'prototype');
 	if (isArrow) {
 		try {
 			const result = (t as TypeFn<V>)();
-			if (typeof result === 'function') {
-				return result;
+			if (typeof result === 'function' || (typeof result === 'object' && result !== null)) {
+				return result as any;
 			}
 		} catch { /* not a valid thunk */ }
 	}
 
-	return t as Constructor<V>;
+	return t as any;
 }
 
 function resolveDefault<V>(options: Required<IJSONPropertyOptions<V>>): V | undefined {
@@ -377,7 +419,22 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 
 			const map = new Map<string, unknown>();
 			for (const [k, v] of Object.entries(rawValue as PlainObj)) {
-				map.set(k, NestedCtor && !isPrim(NestedCtor) && v !== null && typeof v === 'object' ? deserialize(NestedCtor, v as PlainObj, `${path}["${k}"]`) : v);
+				if (NestedCtor) {
+					if (isEnum(NestedCtor)) {
+						const validValues = getEnumValues(NestedCtor as Record<string, string | number>);
+						if (!validValues.includes(v as string | number)) {
+							throw new SerializationError(`Expected one of [${validValues.join(', ')}], got "${v}"`, `${path}["${k}"]`);
+						}
+
+						map.set(k, v);
+					} else if (isPrim(NestedCtor as Constructor)) {
+						map.set(k, coercePrim(v, NestedCtor as Constructor, `${path}["${k}"]`));
+					} else {
+						map.set(k, v !== null && typeof v === 'object' ? deserialize(NestedCtor as Constructor, v as PlainObj, `${path}["${k}"]`) : v);
+					}
+				} else {
+					map.set(k, v);
+				}
 			}
 
 			(instance as PlainObj)[propertyKey] = map;
@@ -394,21 +451,37 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 					return item;
 				}
 
-				return NestedCtor
-					? isPrim(NestedCtor)
-						? coercePrim(item, NestedCtor, `${path}[${i}]`)
-						: deserialize(NestedCtor, item as PlainObj, `${path}[${i}]`)
-					: item;
-			});
-		} else if (NestedCtor) {
-			if (isPrim(NestedCtor)) {
-				rawValue = coercePrim(rawValue, NestedCtor, path);
-			} else {
-				if (typeof rawValue !== 'object' || Array.isArray(rawValue)) {
-					throw new SerializationError(`Expected object for nested type "${NestedCtor.name}" at "${jsonKey}"`, path);
+				if (NestedCtor) {
+					if (isEnum(NestedCtor)) {
+						const validValues = getEnumValues(NestedCtor as Record<string, string | number>);
+						if (!validValues.includes(item as string | number)) {
+							throw new SerializationError(`Expected one of [${validValues.join(', ')}], got "${item}"`, `${path}[${i}]`);
+						}
+
+						return item;
+					} else if (isPrim(NestedCtor as Constructor)) {
+						return coercePrim(item, NestedCtor as Constructor, `${path}[${i}]`);
+					} else {
+						return deserialize(NestedCtor as Constructor, item as PlainObj, `${path}[${i}]`);
+					}
 				}
 
-				rawValue = deserialize(NestedCtor, rawValue as PlainObj, path);
+				return item;
+			});
+		} else if (NestedCtor) {
+			if (isEnum(NestedCtor)) {
+				const validValues = getEnumValues(NestedCtor as Record<string, string | number>);
+				if (!validValues.includes(rawValue as string | number)) {
+					throw new SerializationError(`Expected one of [${validValues.join(', ')}], got "${rawValue}"`, path);
+				}
+			} else if (isPrim(NestedCtor as Constructor)) {
+				rawValue = coercePrim(rawValue, NestedCtor as Constructor, path);
+			} else {
+				if (typeof rawValue !== 'object' || Array.isArray(rawValue)) {
+					throw new SerializationError(`Expected object for nested type "${(NestedCtor as Constructor).name}" at "${jsonKey}"`, path);
+				}
+
+				rawValue = deserialize(NestedCtor as Constructor, rawValue as PlainObj, path);
 			}
 		}
 
