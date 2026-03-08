@@ -233,16 +233,15 @@ class Task {
 	priority!: Priority;
 }
 
-// Deserialize
 const task = deserialize(Task, {
 	title: 'Fix bug',
 	status: 'ACTIVE',
 	priority: 1
 });
+
 console.log(task.status);   // 'ACTIVE'
 console.log(task.priority); // 1
 
-// Serialize
 const plain = serialize(task); // { title: 'Fix bug', status: 'ACTIVE', priority: 1 }
 ```
 

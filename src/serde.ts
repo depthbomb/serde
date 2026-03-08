@@ -117,8 +117,32 @@ const T = '__serde_t__';
 
 const PRIMITIVES = new Set<unknown>([String, Number, Boolean, BigInt]);
 
+const enumValueCache = new WeakMap<EnumType, (string | number)[]>();
+const enumCache = new WeakSet<EnumType>();
+
+// primitive coercion helpers stored in a map to avoid branching
+const primCoercions = new Map<Constructor, (v: unknown, path: string) => unknown>([
+	[String, (v, _path) => String(v)],
+	[Number, (v, path) => {
+		const n = Number(v);
+		if (Number.isNaN(n)) {
+			throw new SerializationError(`Expected number, got "${v}"`, path);
+		}
+
+		return n;
+	}],
+	[Boolean, (v, _path) => Boolean(v)],
+	[(BigInt as unknown as Constructor), (v, _path) =>
+		(BigInt as unknown as (v: number) => bigint)(v as number)
+	],
+] as Array<[Constructor, (v: unknown, path: string) => unknown]>);
+
 /** Detect if a value is a TypeScript enum object. */
 export function isEnum(obj: unknown): boolean {
+	if (enumCache.has(obj as EnumType)) {
+		return true;
+	}
+
 	if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
 		return false;
 	}
@@ -143,19 +167,9 @@ export function isEnum(obj: unknown): boolean {
 	}
 
 	// All properties are string or number primitives, and there are at least 2
+	enumCache.add(obj as EnumType);
+
 	return true;
-}
-
-/** Get all valid values from an enum object */
-function getEnumValues(enumObj: Record<string, string | number>): (string | number)[] {
-	const values = new Set<string | number>();
-	for (const v of Object.values(enumObj)) {
-		if (typeof v === 'string' || typeof v === 'number') {
-			values.add(v);
-		}
-	}
-
-	return Array.from(values);
 }
 
 /** Collect all \@JSONProperty metas walking the prototype chain (child wins). */
@@ -199,28 +213,8 @@ function allMetas(ctor: Constructor): IPropertyMeta[] {
 function isPrim(ctor: unknown): boolean { return PRIMITIVES.has(ctor); }
 
 function coercePrim(value: unknown, ctor: Constructor, path: string): unknown {
-	if (ctor === String) {
-		return String(value);
-	}
-
-	if (ctor === Number) {
-		const n = Number(value);
-		if (Number.isNaN(n)) {
-			throw new SerializationError(`Expected number, got "${value}"`, path);
-		}
-
-		return n;
-	}
-
-	if (ctor === Boolean) {
-		return Boolean(value);
-	}
-
-	if ((ctor as unknown) === BigInt) {
-		return (BigInt as unknown as (v: number) => bigint)(value as number);
-	}
-
-	return value;
+	const fn = primCoercions.get(ctor);
+	return fn ? fn(value, path) : value;
 }
 
 /**
@@ -257,6 +251,35 @@ function resolveDefault<V>(options: Required<IJSONPropertyOptions<V>>): V | unde
 	return typeof options.defaultValue === 'function'
 		? (options.defaultValue as () => V)()
 		: options.defaultValue;
+}
+
+/** @internal */
+export function __test_enumIsCached(enumObj: EnumType): boolean {
+	return enumCache.has(enumObj);
+}
+
+/** @internal */
+export function __test_cachedValues(enumObj: EnumType): (string | number)[] | undefined {
+	return enumValueCache.get(enumObj);
+}
+
+/** Get all valid values from an enum object */
+export function getEnumValues(enumObj: Record<string, string | number>): (string | number)[] {
+	const cached = enumValueCache.get(enumObj as EnumType);
+	if (cached) {
+		return cached;
+	}
+
+	const values = new Set<string | number>();
+	for (const v of Object.values(enumObj)) {
+		if (typeof v === 'string' || typeof v === 'number') {
+			values.add(v);
+		}
+	}
+
+	const arr = Array.from(values);
+	enumValueCache.set(enumObj as EnumType, arr);
+	return arr;
 }
 
 /**

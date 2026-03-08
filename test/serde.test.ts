@@ -14,6 +14,9 @@ import {
 	isSerializable,
 	isEnum,
 	patch,
+	getEnumValues,
+	__test_enumIsCached,
+	__test_cachedValues,
 } from '../src/serde';
 import { SerializationError } from '../src/errors';
 
@@ -392,5 +395,39 @@ describe('enum support', () => {
 		const cloned = clone(Task, task);
 		expect(cloned.status).toBe(StringStatus.Inactive);
 		expect(cloned.priority).toBe(NumericPriority.Low);
+	});
+});
+
+// additional tests for caching/performance helpers
+
+describe('internal caches', () => {
+	test('isEnum caches result', () => {
+		// use a brand‑new enum object so the cache is initially empty
+		enum Local { A = 'A', B = 'B' }
+		expect(__test_enumIsCached(Local)).toBe(false);
+		expect(isEnum(Local)).toBe(true);
+		expect(__test_enumIsCached(Local)).toBe(true);
+		// second call still returns true and doesn't blow up
+		expect(isEnum(Local)).toBe(true);
+	});
+
+	test('getEnumValues caches values array', () => {
+		const first = getEnumValues(NumericPriority);
+		const second = getEnumValues(NumericPriority);
+		expect(first).toBe(second); // same reference means it came from cache
+		expect(__test_cachedValues(NumericPriority)).toBe(second);
+	});
+});
+
+// verify primitive coercion error path still works
+@Serializable()
+class CoerceTest {
+	@JSONProperty({ type: Number })
+	val!: number;
+}
+
+describe('primitive coercion', () => {
+	test('invalid number throws with correct path', () => {
+		expect(() => deserialize(CoerceTest, { val: 'NaN' })).toThrow(SerializationError);
 	});
 });
