@@ -41,7 +41,6 @@ export interface IJSONPropertyOptions<T = unknown> {
 	 * @example { name: "first_name" }
 	 */
 	name?: string;
-
 	/**
 	 * Explicit type constructor for nested objects, or an enum type.
 	 * Use a thunk `() => MyClass` or `() => MyEnum` to support forward / circular references.
@@ -49,26 +48,22 @@ export interface IJSONPropertyOptions<T = unknown> {
 	 * @example { type: () => Status } // enum
 	 */
 	type?: TypeFn<T> | Constructor<T> | EnumType;
-
 	/**
 	 * Treat the property as an array of `type`.
 	 * @example { type: () => Tag, isArray: true }
 	 */
 	isArray?: boolean;
-
 	/**
 	 * Treat the property as a Map<string, T>.
 	 * Serialized as a plain object; deserialized as a native `Map`.
 	 */
 	isMap?: boolean;
-
 	/**
 	 * Allow the key to be absent in JSON input.
 	 * Set to `false` to make the property required (throws if missing).
 	 * @default true
 	 */
 	optional?: boolean;
-
 	/**
 	 * Behaviour when the raw value is `null`:
 	 *  - `"ignore"` omit the assignment (default)
@@ -77,19 +72,16 @@ export interface IJSONPropertyOptions<T = unknown> {
 	 * @default "ignore"
 	 */
 	nullable?: NullableStrategy;
-
 	/**
 	 * Transform applied after deserialization: raw JSON value → typed value.
 	 * @example (raw) => new Date(raw as string)
 	 */
 	deserializeTransform?: (raw: unknown) => T;
-
 	/**
 	 * Transform applied before serialization: typed value → raw JSON value.
 	 * @example (d: Date) => d.toISOString()
 	 */
 	serializeTransform?: (value: T) => unknown;
-
 	/**
 	 * Default value used when the key is absent during deserialization.
 	 * Use a factory function for mutable defaults (arrays, objects).
@@ -97,7 +89,6 @@ export interface IJSONPropertyOptions<T = unknown> {
 	 * @example { defaultValue: 42 }
 	 */
 	defaultValue?: T | (() => T);
-
 	/**
 	 * Validation function run after deserialization.
 	 * Return `false` or a string message to signal failure (throws).

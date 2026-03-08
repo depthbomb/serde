@@ -51,11 +51,14 @@
 		"test": "vitest run"
 	},
 	"devDependencies": {
+		"@eslint/eslintrc": "^3.3.5",
+		"@eslint/js": "^10.0.1",
 		"@types/eslint": "^9.6.1",
 		"@types/node": "^24.12.0",
 		"@typescript-eslint/eslint-plugin": "^8.56.1",
 		"@typescript-eslint/parser": "^8.56.1",
 		"eslint": "^10.0.3",
+		"globals": "^17.4.0",
 		"release-it": "^19.2.4",
 		"tsdown": "^0.21.0",
 		"typescript": "^5.9.3",
