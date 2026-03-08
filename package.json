@@ -40,7 +40,7 @@
 		"dist": "tsdown",
 		"release": "yarn dist && release-it",
 		"lint": "eslint ./src --ext .ts",
-		"test": "vitest"
+		"test": "vitest run"
 	},
 	"devDependencies": {
 		"@types/eslint": "^9.6.1",

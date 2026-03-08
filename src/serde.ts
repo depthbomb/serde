@@ -2,6 +2,7 @@ import { SerializationError } from './errors';
 
 type AnyFn    = Constructor & Record<string, unknown>;
 type PlainObj = Record<string, unknown>;
+type AnyEnum  = Record<string, string | number>;
 
 interface IPropertyMeta<V = unknown> {
 	propertyKey: string;
@@ -224,7 +225,7 @@ function coercePrim(value: unknown, ctor: Constructor, path: string): unknown {
  *   - MyClass          → direct constructor reference
  *   - EnumType         → enum object
  */
-function resolveType<V>(options: Required<IJSONPropertyOptions<V>>): Constructor<V> | Record<string, string | number> | null {
+function resolveType<V>(options: Required<IJSONPropertyOptions<V>>): Constructor<V> | AnyEnum | null {
 	const t = options.type;
 	if (!t) {
 		return null;
@@ -318,16 +319,17 @@ export function isSerializable(ctor: Constructor): boolean {
  * })
  * createdAt!: Date;
  */
-export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {}): PropertyDecorator {
+export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {}): (target: any, propertyKey?: any) => void {
 	return (target, propertyKey) => {
-		if (typeof propertyKey !== 'string') {
+		const key = typeof propertyKey === 'string' ? propertyKey : (propertyKey as any)?.name;
+		if (typeof key !== 'string') {
 			throw new Error('@JSONProperty only supports string keys.');
 		}
 
 		const ctor  = target.constructor as AnyFn;
 		const metas = ownMetas(ctor);
 		const full = {
-			name: options.name ?? propertyKey,
+			name: options.name ?? key,
 			type: (options.type ?? null) as Required<IJSONPropertyOptions<V>>['type'],
 			isArray: options.isArray ?? false,
 			isMap: options.isMap ?? false,
@@ -339,9 +341,9 @@ export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {})
 			validate: options.validate ?? (() => undefined),
 		} as Required<IJSONPropertyOptions<V>>;
 
-		const idx = metas.findIndex((m) => m.propertyKey === propertyKey);
+		const idx = metas.findIndex((m) => m.propertyKey === key);
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const entry = { propertyKey, options: full as any };
+		const entry = { propertyKey: key, options: full as any };
 		if (idx >= 0) {
 			metas[idx] = entry;
 		} else {
@@ -399,6 +401,35 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 		}
 	}
 
+	function convertValue(val: unknown, ctorOrEnum: Constructor | Record<string, string | number> | null, path: string): unknown {
+		if (val === null || val === undefined) {
+			return val;
+		}
+
+		if (!ctorOrEnum) {
+			return val;
+		}
+
+		if (isEnum(ctorOrEnum)) {
+			const validValues = getEnumValues(ctorOrEnum as AnyEnum);
+			if (!validValues.includes(val as string | number)) {
+				throw new SerializationError(`Expected one of [${validValues.join(', ')}], got "${val}"`, path);
+			}
+			return val;
+		}
+
+		if (isPrim(ctorOrEnum as Constructor)) {
+			return coercePrim(val, ctorOrEnum as Constructor, path);
+		}
+
+		// at this point we expect an object that will be recursively deserialized
+		if (typeof val !== 'object' || Array.isArray(val)) {
+			throw new SerializationError(`Expected object for nested type "${(ctorOrEnum as Constructor).name || 'Object'}"`, path);
+		}
+
+		return deserialize(ctorOrEnum as Constructor, val as PlainObj, path);
+	}
+
 	const seenKeys = new Set<string>(); // track which keys we've assigned (for strict mode)
 	const instance = new ctor();
 	const metas    = allMetas(ctor);
@@ -442,22 +473,8 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 
 			const map = new Map<string, unknown>();
 			for (const [k, v] of Object.entries(rawValue as PlainObj)) {
-				if (NestedCtor) {
-					if (isEnum(NestedCtor)) {
-						const validValues = getEnumValues(NestedCtor as Record<string, string | number>);
-						if (!validValues.includes(v as string | number)) {
-							throw new SerializationError(`Expected one of [${validValues.join(', ')}], got "${v}"`, `${path}["${k}"]`);
-						}
-
-						map.set(k, v);
-					} else if (isPrim(NestedCtor as Constructor)) {
-						map.set(k, coercePrim(v, NestedCtor as Constructor, `${path}["${k}"]`));
-					} else {
-						map.set(k, v !== null && typeof v === 'object' ? deserialize(NestedCtor as Constructor, v as PlainObj, `${path}["${k}"]`) : v);
-					}
-				} else {
-					map.set(k, v);
-				}
+				// convertValue handles null/undefined, enum validation, and recursion
+				map.set(k, convertValue(v, NestedCtor, `${path}["${k}"]`));
 			}
 
 			(instance as PlainObj)[propertyKey] = map;
@@ -469,43 +486,13 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 				throw new SerializationError(`Expected array for property "${jsonKey}"`, path);
 			}
 
-			rawValue = (rawValue as unknown[]).map((item, i) => {
-				if (item === null || item === undefined) {
-					return item;
-				}
-
-				if (NestedCtor) {
-					if (isEnum(NestedCtor)) {
-						const validValues = getEnumValues(NestedCtor as Record<string, string | number>);
-						if (!validValues.includes(item as string | number)) {
-							throw new SerializationError(`Expected one of [${validValues.join(', ')}], got "${item}"`, `${path}[${i}]`);
-						}
-
-						return item;
-					} else if (isPrim(NestedCtor as Constructor)) {
-						return coercePrim(item, NestedCtor as Constructor, `${path}[${i}]`);
-					} else {
-						return deserialize(NestedCtor as Constructor, item as PlainObj, `${path}[${i}]`);
-					}
-				}
-
-				return item;
-			});
-		} else if (NestedCtor) {
-			if (isEnum(NestedCtor)) {
-				const validValues = getEnumValues(NestedCtor as Record<string, string | number>);
-				if (!validValues.includes(rawValue as string | number)) {
-					throw new SerializationError(`Expected one of [${validValues.join(', ')}], got "${rawValue}"`, path);
-				}
-			} else if (isPrim(NestedCtor as Constructor)) {
-				rawValue = coercePrim(rawValue, NestedCtor as Constructor, path);
-			} else {
-				if (typeof rawValue !== 'object' || Array.isArray(rawValue)) {
-					throw new SerializationError(`Expected object for nested type "${(NestedCtor as Constructor).name}" at "${jsonKey}"`, path);
-				}
-
-				rawValue = deserialize(NestedCtor as Constructor, rawValue as PlainObj, path);
-			}
+			rawValue = (rawValue as unknown[]).map((item, i) =>
+				// convertValue handles null/undefined, enum validation, and recursion
+				convertValue(item, NestedCtor, `${path}[${i}]`),
+			);
+		} else {
+			// convertValue handles null/undefined, enum validation, and recursion
+			rawValue = convertValue(rawValue, NestedCtor, path);
 		}
 
 		rawValue = options.deserializeTransform(rawValue);
@@ -559,6 +546,7 @@ export function serialize<V extends object>(instance: V, _path = '$'): PlainObj 
 		throw new SerializationError(`Cannot serialize instance of unmarked class "${ctor.name || 'Object'}"`, _path);
 	}
 
+	// only properties decorated with @JSONProperty are included
 	const metas  = allMetas(ctor);
 	const result = {} as PlainObj;
 
@@ -634,8 +622,11 @@ export function fromJSON<V>(ctor: Constructor<V>, json: string): V {
 }
 
 /**
- * Deep-clone a serializable instance by round-tripping through serialization.
- * Guarantees a fully independent copy with no shared references.
+ * Deep-clone a serializable instance by round-tripping through serialization. Guarantees a fully
+ * independent copy with no shared references.
+ *
+ * Note: This performs full serialization and deserialization. For large object graphs, consider
+ * manual cloning if performance is critical.
  *
  * @example
  * const copy = clone(User, user);
@@ -645,8 +636,11 @@ export function clone<V extends object>(ctor: Constructor<V>, instance: V): V {
 }
 
 /**
- * Merge a partial plain-object patch into an existing instance.
- * Keys present in `partial` override the current values; everything else is preserved.
+ * Merge a partial plain-object patch into an existing instance. Keys present in `partial` override
+ *  the current values; everything else is preserved.
+ *
+ * Note: This performs full serialization and deserialization. For simple updates, consider mutating
+ *  the instance directly if the type system allows.
  *
  * @example
  * const updated = patch(User, user, { age: 37 });
