@@ -18,7 +18,7 @@ import {
 	__test_enumIsCached,
 	__test_cachedValues,
 } from '../src/serde';
-import { SerializationError } from '../src/errors';
+import { SerializationError, SerializationErrorCode } from '../src/errors';
 
 // simple class
 @Serializable()
@@ -429,5 +429,76 @@ class CoerceTest {
 describe('primitive coercion', () => {
 	test('invalid number throws with correct path', () => {
 		expect(() => deserialize(CoerceTest, { val: 'NaN' })).toThrow(SerializationError);
+	});
+});
+
+// error code tests
+@Serializable()
+class Required {
+	@JSONProperty({ optional: false })
+	field!: string;
+}
+
+describe('error codes', () => {
+	test('MISSING_PROPERTY code on required field', () => {
+		try {
+			deserialize(Required, {});
+			expect.fail('should throw');
+		} catch (e) {
+			expect(e).toBeInstanceOf(SerializationError);
+			expect((e as SerializationError).code).toBe(SerializationErrorCode.MISSING_PROPERTY);
+		}
+	});
+
+	test('INVALID_ENUM_VALUE code on invalid enum', () => {
+		try {
+			deserialize(Task, { title: 'X', status: 'INVALID', priority: 0 });
+			expect.fail('should throw');
+		} catch (e) {
+			expect(e).toBeInstanceOf(SerializationError);
+			expect((e as SerializationError).code).toBe(SerializationErrorCode.INVALID_ENUM_VALUE);
+		}
+	});
+
+	test('UNEXPECTED_PROPERTY code in strict mode', () => {
+		try {
+			deserialize(User, { first_name: 'Ada', age: 30, extra: true }, '$', { strict: true });
+			expect.fail('should throw');
+		} catch (e) {
+			expect(e).toBeInstanceOf(SerializationError);
+			expect((e as SerializationError).code).toBe(SerializationErrorCode.UNEXPECTED_PROPERTY);
+		}
+	});
+
+	test('NULL_NOT_ALLOWED code when nullable: error', () => {
+		@Serializable()
+		class StrictNull {
+			@JSONProperty({ nullable: 'error' })
+			val!: string;
+		}
+
+		try {
+			deserialize(StrictNull, { val: null });
+			expect.fail('should throw');
+		} catch (e) {
+			expect(e).toBeInstanceOf(SerializationError);
+			expect((e as SerializationError).code).toBe(SerializationErrorCode.NULL_NOT_ALLOWED);
+		}
+	});
+
+	test('VALIDATION_FAILED code on failed validation', () => {
+		@Serializable()
+		class ValidatedNum {
+			@JSONProperty({ validate: (v: number) => v > 0 })
+			num!: number;
+		}
+
+		try {
+			deserialize(ValidatedNum, { num: -5 });
+			expect.fail('should throw');
+		} catch (e) {
+			expect(e).toBeInstanceOf(SerializationError);
+			expect((e as SerializationError).code).toBe(SerializationErrorCode.VALIDATION_FAILED);
+		}
 	});
 });
