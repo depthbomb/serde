@@ -16,6 +16,14 @@
 		".": {
 			"import": "./dist/index.mjs",
 			"require": "./dist/index.cjs"
+		},
+		"./errors": {
+			"import": "./dist/errors.mjs",
+			"require": "./dist/errors.cjs"
+		},
+		"./utilities": {
+			"import": "./dist/utilities.mjs",
+			"require": "./dist/utilities.cjs"
 		}
 	},
 	"main": "./dist/index.cjs",

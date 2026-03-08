@@ -1,4 +1,5 @@
 import { describe, test, expect } from 'vitest';
+import { clone, patch, toJSON, fromJSON } from '../src/utilities';
 import {
 	Serializable,
 	JSONProperty,
@@ -8,16 +9,12 @@ import {
 	deserializeArray,
 	serialize,
 	serializeArray,
-	toJSON,
-	fromJSON,
-	clone,
 	isSerializable,
 	isEnum,
-	patch,
 	getEnumValues,
 	__test_enumIsCached,
 	__test_cachedValues,
-} from '../src/serde';
+} from '../src';
 import { SerializationError, SerializationErrorCode } from '../src/errors';
 
 // simple class
