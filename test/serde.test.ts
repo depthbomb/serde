@@ -71,6 +71,11 @@ describe('core serde functionality', () => {
 		expect(Array.isArray(plain)).toBe(true);
 		expect(deserializeArray(User, plain)).toEqual(arr);
 	});
+
+	test('serializeArray checks input type', () => {
+		expect(() => serializeArray(null as any)).toThrow(SerializationError);
+		expect(() => serializeArray({} as any)).toThrow(SerializationError);
+	});
 });
 
 // nested types, defaults, arrays, maps
@@ -179,6 +184,22 @@ describe('defaults/required/nullable/validation', () => {
 
 	test('validation function', () => {
 		expect(() => deserialize(Positive, { value: -1 })).toThrow(SerializationError);
+	});
+
+	@Serializable()
+	class TransformOptional {
+		@JSONProperty({
+			optional: true,
+			serializeTransform: (v: { data: string }) => v.data,
+		})
+		obj?: { data: string };
+	}
+
+	test('serializeTransform is bypassed when optional property is undefined', () => {
+		const t = new TransformOptional();
+		// Should not throw TypeError: Cannot read properties of undefined (reading 'data')
+		const plain = serialize(t);
+		expect(plain).toEqual({});
 	});
 });
 
@@ -329,6 +350,10 @@ describe('enum support', () => {
 
 	test('invalid enum value throws', () => {
 		expect(() => deserialize(Task, { title: 'Task', status: 'INVALID', priority: 0 })).toThrow(SerializationError);
+	});
+
+	test('reverse mapping enum string keys are rejected for numeric enums', () => {
+		expect(() => deserialize(Task, { title: 'Task', status: 'ACTIVE', priority: 'Low' } as any)).toThrow(SerializationError);
 	});
 
 	test('enum in array', () => {

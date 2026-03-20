@@ -118,8 +118,9 @@ const primCoercions = new Map<Constructor, (v: unknown, path: string) => unknown
 	[Number, (v, path) => {
 		const n = Number(v);
 		if (Number.isNaN(n)) {
-					throw new SerializationError(`Expected number, got "${v}"`, path, SerializationErrorCode.TYPE_MISMATCH);
-				}
+			throw new SerializationError(`Expected number, got "${v}"`, path, SerializationErrorCode.TYPE_MISMATCH);
+		}
+
 		return n;
 	}],
 	[Boolean, (v, _path) => Boolean(v)],
@@ -262,7 +263,10 @@ export function getEnumValues(enumObj: Record<string, string | number>): (string
 	}
 
 	const values = new Set<string | number>();
-	for (const v of Object.values(enumObj)) {
+	for (const [k, v] of Object.entries(enumObj)) {
+		if (typeof v === 'string' && /^\d+$/.test(k) && enumObj[v] === Number(k)) {
+			continue;
+		}
 		if (typeof v === 'string' || typeof v === 'number') {
 			values.add(v);
 		}
@@ -316,7 +320,7 @@ export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {})
 			throw new Error('@JSONProperty only supports string keys.');
 		}
 
-		const ctor  = target.constructor as AnyFn;
+		const ctor = target.constructor as AnyFn;
 		const metas = ownMetas(ctor);
 		const full = {
 			name: options.name ?? key,
@@ -381,7 +385,7 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 		if (subtypes && discValue !== undefined) {
 			const sub = subtypes.get(discValue);
 			if (!sub) {
-					throw new SerializationError(`Unknown discriminator value "${discValue}" for field "${discField}"`, _path, SerializationErrorCode.UNKNOWN_DISCRIMINATOR);
+				throw new SerializationError(`Unknown discriminator value "${discValue}" for field "${discField}"`, _path, SerializationErrorCode.UNKNOWN_DISCRIMINATOR);
 			}
 
 			// avoid recursion if the resolved subtype is the same constructor
@@ -402,9 +406,10 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 
 		if (isEnum(ctorOrEnum)) {
 			const validValues = getEnumValues(ctorOrEnum as AnyEnum);
-				if (!validValues.includes(val as string | number)) {
-					throw new SerializationError(`Expected one of [${validValues.join(', ')}], got "${val}"`, path, SerializationErrorCode.INVALID_ENUM_VALUE);
+			if (!validValues.includes(val as string | number)) {
+				throw new SerializationError(`Expected one of [${validValues.join(', ')}], got "${val}"`, path, SerializationErrorCode.INVALID_ENUM_VALUE);
 			}
+
 			return val;
 		}
 
@@ -422,7 +427,7 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 
 	const seenKeys = new Set<string>(); // track which keys we've assigned (for strict mode)
 	const instance = new ctor();
-	const metas    = allMetas(ctor);
+	const metas = allMetas(ctor);
 	for (const meta of metas) {
 		const { propertyKey, options } = meta;
 		const jsonKey                  = options.name;
@@ -437,14 +442,21 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 
 		if (rawValue === undefined) {
 			const def = resolveDefault(options);
-			if (def !== undefined) { (instance as PlainObj)[propertyKey] = def; continue; }
-				if (!options.optional) throw new SerializationError(`Missing required property "${jsonKey}"`, path, SerializationErrorCode.MISSING_PROPERTY);
+			if (def !== undefined) {
+				(instance as PlainObj)[propertyKey] = def;
+				continue;
+			}
+
+			if (!options.optional) {
+				throw new SerializationError(`Missing required property "${jsonKey}"`, path, SerializationErrorCode.MISSING_PROPERTY);
+			}
+
 			continue;
 		}
 
 		if (rawValue === null) {
-				if (options.nullable === 'error') {
-					throw new SerializationError(`Property "${jsonKey}" must not be null`, path, SerializationErrorCode.NULL_NOT_ALLOWED);
+			if (options.nullable === 'error') {
+				throw new SerializationError(`Property "${jsonKey}" must not be null`, path, SerializationErrorCode.NULL_NOT_ALLOWED);
 			}
 
 			if (options.nullable === 'null') {
@@ -457,8 +469,8 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 		const NestedCtor = resolveType(options);
 
 		if (options.isMap) {
-				if (typeof rawValue !== 'object' || Array.isArray(rawValue)) {
-					throw new SerializationError(`Expected object for map property "${jsonKey}"`, path, SerializationErrorCode.TYPE_MISMATCH);
+			if (typeof rawValue !== 'object' || Array.isArray(rawValue)) {
+				throw new SerializationError(`Expected object for map property "${jsonKey}"`, path, SerializationErrorCode.TYPE_MISMATCH);
 			}
 
 			const map = new Map<string, unknown>();
@@ -488,20 +500,21 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 		rawValue = options.deserializeTransform(rawValue);
 
 		const vResult = options.validate(rawValue as V);
-			if (vResult === false || typeof vResult === 'string') {
-				throw new SerializationError(typeof vResult === 'string' ? vResult : `Validation failed for property "${jsonKey}"`, path, SerializationErrorCode.VALIDATION_FAILED);
+		if (vResult === false || typeof vResult === 'string') {
+			throw new SerializationError(typeof vResult === 'string' ? vResult : `Validation failed for property "${jsonKey}"`, path, SerializationErrorCode.VALIDATION_FAILED);
 		}
 
 		(instance as PlainObj)[propertyKey] = rawValue;
 	}
 
 	if (options.strict) {
-			for (const k of Object.keys(raw)) {
-				if (!seenKeys.has(k)) {
-					throw new SerializationError(`Unexpected property "${k}" in strict mode`, _path, SerializationErrorCode.UNEXPECTED_PROPERTY);
+		for (const k of Object.keys(raw)) {
+			if (!seenKeys.has(k)) {
+				throw new SerializationError(`Unexpected property "${k}" in strict mode`, _path, SerializationErrorCode.UNEXPECTED_PROPERTY);
 			}
 		}
 	}
+
 	return instance;
 }
 
@@ -513,8 +526,8 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
  */
 export function deserializeArray<V>(ctor: Constructor<V>, data: PlainObj[] | string, path = '$', options: IDeserializeOptions = {}): V[] {
 	const raw = typeof data === 'string' ? (JSON.parse(data) as PlainObj[]) : data;
-			if (!Array.isArray(raw)) {
-				throw new SerializationError('Expected an array at root', path, SerializationErrorCode.NOT_AN_ARRAY);
+	if (!Array.isArray(raw)) {
+		throw new SerializationError('Expected an array at root', path, SerializationErrorCode.NOT_AN_ARRAY);
 	}
 
 	return raw.map((item, i) => deserialize(ctor, item, `${path}[${i}]`, options));
@@ -528,18 +541,17 @@ export function deserializeArray<V>(ctor: Constructor<V>, data: PlainObj[] | str
  */
 export function serialize<V extends object>(instance: V, _path = '$'): PlainObj {
 	if (instance === null || instance === undefined) {
-			throw new SerializationError('Cannot serialize null/undefined', _path, SerializationErrorCode.NULL_INPUT);
+		throw new SerializationError('Cannot serialize null/undefined', _path, SerializationErrorCode.NULL_INPUT);
 	}
 
 	const ctor = instance.constructor as Constructor<V>;
-			if (!isSerializable(ctor)) {
-				throw new SerializationError(`Cannot serialize instance of unmarked class "${ctor.name || 'Object'}"`, _path, SerializationErrorCode.UNMARKED_CLASS);
+	if (!isSerializable(ctor)) {
+		throw new SerializationError(`Cannot serialize instance of unmarked class "${ctor.name || 'Object'}"`, _path, SerializationErrorCode.UNMARKED_CLASS);
 	}
 
 	// only properties decorated with @JSONProperty are included
-	const metas  = allMetas(ctor);
 	const result = {} as PlainObj;
-
+	const metas  = allMetas(ctor);
 	for (const meta of metas) {
 		const { propertyKey, options } = meta;
 		const jsonKey                  = options.name;
@@ -547,10 +559,13 @@ export function serialize<V extends object>(instance: V, _path = '$'): PlainObj 
 
 		let value: unknown = (instance as PlainObj)[propertyKey];
 
-		value = options.serializeTransform(value as never) as unknown;
+		if (value !== undefined && value !== null) {
+			value = options.serializeTransform(value as never) as unknown;
+		}
+
 		if (value === null || value === undefined) {
-				if (options.nullable === 'error') {
-					throw new SerializationError(`Property "${propertyKey}" must not be null/undefined`, path, SerializationErrorCode.NULL_NOT_ALLOWED);
+			if (options.nullable === 'error') {
+				throw new SerializationError(`Property "${propertyKey}" must not be null/undefined`, path, SerializationErrorCode.NULL_NOT_ALLOWED);
 			}
 
 			if (options.nullable === 'null') {
@@ -593,5 +608,9 @@ export function serialize<V extends object>(instance: V, _path = '$'): PlainObj 
  * Serialize an array of class instances to a plain object array.
  */
 export function serializeArray<V extends object>(instances: V[], path = '$'): PlainObj[] {
+	if (!Array.isArray(instances)) {
+		throw new SerializationError('Expected an array', path, SerializationErrorCode.NOT_AN_ARRAY);
+	}
+
 	return instances.map((inst, i) => serialize(inst, `${path}[${i}]`));
 }

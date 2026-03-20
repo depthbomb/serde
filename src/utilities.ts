@@ -1,5 +1,5 @@
-import { serialize, deserialize } from '.';
-import type { Constructor } from '.';
+import { serialize, deserialize } from './';
+import type { Constructor } from './';
 
 /**
  * Serialize to a JSON string.
