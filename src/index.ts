@@ -429,6 +429,10 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 		throw new SerializationError('Cannot deserialize null/undefined', _path, SerializationErrorCode.NULL_INPUT);
 	}
 
+	if (typeof raw !== 'object' || Array.isArray(raw)) {
+		throw new SerializationError('Expected plain object at root', _path, SerializationErrorCode.TYPE_MISMATCH);
+	}
+
 	const discField = (ctor as AnyFn)[D] as string | undefined;
 	if (discField) {
 		const discValue = raw[discField] as string;

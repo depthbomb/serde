@@ -77,6 +77,11 @@ describe('core serde functionality', () => {
 		expect(() => serializeArray(null as any)).toThrow(SerializationError);
 		expect(() => serializeArray({} as any)).toThrow(SerializationError);
 	});
+
+	test('deserialize rejects non-object root inputs', () => {
+		expect(() => deserialize(User, [] as any)).toThrow(SerializationError);
+		expect(() => deserialize(User, 42 as any)).toThrow(SerializationError);
+	});
 });
 
 // nested types, defaults, arrays, maps
