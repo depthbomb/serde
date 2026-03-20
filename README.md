@@ -194,17 +194,19 @@ class Catalog {
 }
 ```
 
-### Date transforms
+### Dates
 
 ```ts
 @Serializable()
 class Event {
-	@JSONProperty({
-		deserializeTransform: (raw) => new Date(raw as string),
-		serializeTransform: (d: Date) => d.toISOString(),
-	})
+	@JSONProperty({ type: Date })
 	startDate!: Date;
 }
+
+const ev = deserialize(Event, { startDate: '2026-03-20T11:23:46.000Z' });
+console.log(ev.startDate.getFullYear()); // 2026
+
+const plain = serialize(ev); // { startDate: '2026-03-20T11:23:46.000Z' }
 ```
 
 ### Enums

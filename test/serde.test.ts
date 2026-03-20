@@ -146,6 +146,43 @@ describe('nested / collection examples', () => {
 		const back = deserialize(Catalog, plain);
 		expect(back.products.get('sku')).toBeInstanceOf(Product);
 	});
+
+	@Serializable()
+	class DateTest {
+		@JSONProperty({ type: Date })
+		date!: Date;
+
+		@JSONProperty({ type: Date, isArray: true })
+		dates!: Date[];
+
+		@JSONProperty({ type: Date, isMap: true })
+		dateMap!: Map<string, Date>;
+	}
+
+	test('built-in Date serialization and deserialization', () => {
+		const d = new Date('2026-03-20T11:23:46.000Z');
+		const t = new DateTest();
+		t.date = d;
+		t.dates = [d];
+		t.dateMap = new Map([['today', d]]);
+
+		const plain = serialize(t);
+		expect(plain).toEqual({
+			date: '2026-03-20T11:23:46.000Z',
+			dates: ['2026-03-20T11:23:46.000Z'],
+			dateMap: { today: '2026-03-20T11:23:46.000Z' }
+		});
+
+		const back = deserialize(DateTest, plain);
+		expect(back.date).toBeInstanceOf(Date);
+		expect(back.date.getTime()).toBe(d.getTime());
+		expect(back.dates[0]).toBeInstanceOf(Date);
+		expect(back.dateMap.get('today')).toBeInstanceOf(Date);
+	});
+
+	test('invalid Date deserialization throws TYPE_MISMATCH', () => {
+		expect(() => deserialize(DateTest, { date: 'not-a-date' })).toThrow(SerializationError);
+	});
 });
 
 // defaults/optional/nullable/validation

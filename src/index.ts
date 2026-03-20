@@ -184,7 +184,7 @@ function allMetas(ctor: Constructor): IPropertyMeta[] {
 }
 
 function isPrim(ctor: unknown): boolean {
-	return ctor === String || ctor === Number || ctor === Boolean || (ctor as any) === BigInt;
+	return ctor === String || ctor === Number || ctor === Boolean || (ctor as any) === BigInt || ctor === Date;
 }
 
 function coercePrim(value: unknown, ctor: Constructor, path: string | (() => string)): unknown {
@@ -207,6 +207,15 @@ function coercePrim(value: unknown, ctor: Constructor, path: string | (() => str
 
 	if ((ctor as any) === BigInt) {
 		return (BigInt as any)(value);
+	}
+
+	if (ctor === Date) {
+		const d = new Date(value as any);
+		if (Number.isNaN(d.getTime())) {
+			throw new SerializationError(`Expected valid date string/number, got "${value}"`, typeof path === 'function' ? path() : path, SerializationErrorCode.TYPE_MISMATCH);
+		}
+
+		return d;
 	}
 
 	return value;
@@ -575,10 +584,26 @@ export function serialize<V extends object>(instance: V, _path = '$'): PlainObj 
 			continue;
 		}
 
+		function serializeValue(v: unknown, pathGetter: () => string): unknown {
+			if (v === null || v === undefined) {
+				return v;
+			}
+
+			if (v instanceof Date) {
+				return v.toISOString();
+			}
+
+			if (typeof v === 'object') {
+				return serialize(v as object, pathGetter());
+			}
+
+			return v;
+		}
+
 		if (options.isMap && value instanceof Map) {
 			const obj = {} as PlainObj;
 			for (const [k, v] of (value as Map<string, unknown>)) {
-				obj[k] = v !== null && typeof v === 'object' ? serialize(v as object, `${getPath()}["${k}"]`) : v;
+				obj[k] = serializeValue(v, () => `${getPath()}["${k}"]`);
 			}
 
 			result[jsonKey] = obj;
@@ -587,19 +612,12 @@ export function serialize<V extends object>(instance: V, _path = '$'): PlainObj 
 
 		if (Array.isArray(value)) {
 			result[jsonKey] = (value as unknown[]).map((item, i) =>
-				item !== null && typeof item === 'object'
-					? serialize(item as object, `${getPath()}[${i}]`)
-					: item,
+				serializeValue(item, () => `${getPath()}[${i}]`)
 			);
 			continue;
 		}
 
-		if (typeof value === 'object') {
-			result[jsonKey] = serialize(value as object, getPath());
-			continue;
-		}
-
-		result[jsonKey] = value;
+		result[jsonKey] = serializeValue(value, getPath);
 	}
 
 	return result;
