@@ -662,6 +662,18 @@ export function serialize<V extends object>(instance: V, _path = '$', options: I
 	// only properties decorated with @JSONProperty are included
 	const result = {} as PlainObj;
 	const metas  = allMetas(ctor);
+	const setObjectKey = (obj: PlainObj, key: string, value: unknown): void => {
+		if (key === '__proto__') {
+			Object.defineProperty(obj, key, {
+				value,
+				enumerable: true,
+				configurable: true,
+				writable: true,
+			});
+			return;
+		}
+		obj[key] = value;
+	};
 	for (const meta of metas) {
 		const { propertyKey, options: metaOptions, explicitName } = meta;
 		const jsonKey = explicitName ? metaOptions.name : (options.namingStrategy ? options.namingStrategy(propertyKey) : metaOptions.name);
@@ -678,7 +690,7 @@ export function serialize<V extends object>(instance: V, _path = '$', options: I
 			}
 
 			if (metaOptions.nullable === 'null') {
-				result[jsonKey] = null;
+				setObjectKey(result, jsonKey, null);
 			}
 			continue;
 		}
@@ -704,30 +716,30 @@ export function serialize<V extends object>(instance: V, _path = '$', options: I
 		}
 
 		if (metaOptions.isMap && value instanceof Map) {
-			const obj = {} as PlainObj;
+			const obj = Object.create(null) as PlainObj;
 			for (const [k, v] of (value as Map<string, unknown>)) {
-				obj[k] = serializeValue(v, () => `${getPath()}["${k}"]`);
+				setObjectKey(obj, k, serializeValue(v, () => `${getPath()}["${k}"]`));
 			}
 
-			result[jsonKey] = obj;
+			setObjectKey(result, jsonKey, obj);
 			continue;
 		}
 
 		if (metaOptions.isSet && value instanceof Set) {
-			result[jsonKey] = Array.from(value as Set<unknown>).map((item, i) =>
+			setObjectKey(result, jsonKey, Array.from(value as Set<unknown>).map((item, i) =>
 				serializeValue(item, () => `${getPath()}[${i}]`)
-			);
+			));
 			continue;
 		}
 
 		if (Array.isArray(value)) {
-			result[jsonKey] = (value as unknown[]).map((item, i) =>
+			setObjectKey(result, jsonKey, (value as unknown[]).map((item, i) =>
 				serializeValue(item, () => `${getPath()}[${i}]`)
-			);
+			));
 			continue;
 		}
 
-		result[jsonKey] = serializeValue(value, getPath);
+		setObjectKey(result, jsonKey, serializeValue(value, getPath));
 	}
 
 	return result;

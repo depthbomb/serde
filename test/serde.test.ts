@@ -164,6 +164,17 @@ describe('nested / collection examples', () => {
 		expect(back.products.get('sku')).toBeInstanceOf(Product);
 	});
 
+	test('map serialization does not allow __proto__ key to mutate output prototype', () => {
+		const cat = new Catalog();
+		cat.products = new Map([['__proto__', Object.assign(new Product(), { price: 7 })]]);
+
+		const plain = serialize(cat);
+		const products = plain.products as Record<string, unknown>;
+		expect(Object.getPrototypeOf(products)).toBeNull();
+		expect(Object.prototype.hasOwnProperty.call(products, '__proto__')).toBe(true);
+		expect(products['__proto__']).toEqual({ price: 7 });
+	});
+
 	@Serializable()
 	class DateTest {
 		@JSONProperty({ type: Date })

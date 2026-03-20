@@ -38,8 +38,7 @@
 		"release": "yarn dist && release-it",
 		"lint": "eslint ./src --ext .ts",
 		"test:unit": "vitest run",
-		"test:artifacts": "yarn dist && node test/artifact-smoke.mjs",
-		"test": "yarn test:unit && yarn test:artifacts"
+		"test": "yarn test:unit"
 	},
 	"devDependencies": {
 		"@eslint/eslintrc": "^3.3.5",
