@@ -14,6 +14,7 @@ import {
 	getEnumValues,
 	__test_enumIsCached,
 	__test_cachedValues,
+	NamingStrategies,
 } from '../src';
 import { SerializationError, SerializationErrorCode } from '../src/errors';
 
@@ -225,6 +226,45 @@ describe('nested / collection examples', () => {
 
 	test('invalid Set deserialization throws NOT_AN_ARRAY', () => {
 		expect(() => deserialize(CollectionsTest, { url: 'https://example.com', productSet: {} })).toThrow(SerializationError);
+	});
+
+	@Serializable()
+	class NamingStrategyTest {
+		@JSONProperty()
+		firstName!: string;
+
+		@JSONProperty()
+		lastName!: string;
+
+		@JSONProperty({ name: 'OVERRIDDEN' })
+		customName!: string;
+	}
+
+	test('naming strategies transform keys securely during deserialization', () => {
+		const payload = {
+			first_name: 'John',
+			last_name: 'Doe',
+			OVERRIDDEN: 'Yes'
+		};
+
+		const inst = deserialize(NamingStrategyTest, payload, '$', { namingStrategy: NamingStrategies.camelToSnake });
+		expect(inst.firstName).toBe('John');
+		expect(inst.lastName).toBe('Doe');
+		expect(inst.customName).toBe('Yes');
+	});
+
+	test('naming strategies transform keys reliably during serialization', () => {
+		const inst = new NamingStrategyTest();
+		inst.firstName = 'Jane';
+		inst.lastName = 'Smith';
+		inst.customName = 'Indeed';
+
+		const plain = serialize(inst, '$', { namingStrategy: NamingStrategies.camelToSnake });
+		expect(plain).toEqual({
+			first_name: 'Jane',
+			last_name: 'Smith',
+			OVERRIDDEN: 'Indeed'
+		});
 	});
 });
 

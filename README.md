@@ -147,6 +147,29 @@ Example:
 const user = deserialize(User, data, '$', { strict: true });
 ```
 
+### Global Naming Strategies
+
+You can globally format property keys into standardized JSON casing like `snake_case` or `PascalCase` without manually applying the `.name` attribute on every single property wrapper:
+
+```ts
+import { NamingStrategies } from '@depthbomb/serde';
+
+@Serializable()
+class User {
+	@JSONProperty() firstName!: string;
+	@JSONProperty() lastName!: string;
+}
+
+const payload = { first_name: 'John', last_name: 'Doe' };
+const user = deserialize(User, payload, '$', {
+	namingStrategy: NamingStrategies.camelToSnake
+});
+
+console.log(user.firstName); // "John"
+```
+
+> Note: Any property that explicitly declares `@JSONProperty({ name: 'CUSTOM' })` will bypass the NamingStrategy directly and preserve its intentional schema name.
+
 ---
 
 ## Recipes
@@ -215,11 +238,11 @@ class Event {
 	@JSONProperty({ type: Date })
 	startDate!: Date;
 
-	@JSONProperty({ type: URL as any }) // or () => URL
+	@JSONProperty({ type: URL })
 	link!: URL;
 }
 
-const ev = deserialize(Event, { 
+const ev = deserialize(Event, {
 	startDate: '2026-03-20T11:23:46.000Z',
 	link: 'https://example.com/foo'
 });
