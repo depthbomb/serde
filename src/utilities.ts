@@ -46,5 +46,29 @@ export function clone<V extends object>(ctor: Constructor<V>, instance: V): V {
  * const updated = patch(User, user, { age: 37 });
  */
 export function patch<V extends object>(ctor: Constructor<V>, instance: V, partial: Record<string, unknown>): V {
-	return deserialize(ctor, { ...serialize(instance), ...partial });
+	const next = { ...serialize(instance), ...partial } as Record<string, unknown>;
+
+	// Support TS property keys in patch input, even when @JSONProperty({ name }) remaps JSON keys.
+	const P    = '__serde_p__';
+	const seen = new Set<string>();
+
+	let proto: object | null = ctor as unknown as object;
+	while (proto && proto !== Function.prototype && proto !== Object.prototype) {
+		if (Object.prototype.hasOwnProperty.call(proto, P)) {
+			for (const meta of (proto as Record<string, unknown>)[P] as Array<{ propertyKey: string; options: { name: string } }>) {
+				if (seen.has(meta.propertyKey)) {
+					continue;
+				}
+
+				seen.add(meta.propertyKey);
+				if (Object.prototype.hasOwnProperty.call(partial, meta.propertyKey)) {
+					next[meta.options.name] = partial[meta.propertyKey];
+				}
+			}
+		}
+
+		proto = Object.getPrototypeOf(proto);
+	}
+
+	return deserialize(ctor, next);
 }

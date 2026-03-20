@@ -433,6 +433,16 @@ describe('miscellaneous behaviours', () => {
 		expect(updated.age).toBe(26);
 		expect(updated).not.toBe(u); // returns new instance
 	});
+
+	test('patch accepts property keys for renamed JSON fields', () => {
+		const u = new User();
+		u.firstName = 'Alice';
+		u.age = 25;
+
+		const updated = patch(User, u, { firstName: 'Eve' });
+		expect(updated.firstName).toBe('Eve');
+		expect(updated.age).toBe(25);
+	});
 });
 
 // Enums
