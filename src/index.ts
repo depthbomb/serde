@@ -470,6 +470,10 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 	if (typeof raw !== 'object' || Array.isArray(raw)) {
 		throw new SerializationError('Expected plain object at root', _path, SerializationErrorCode.TYPE_MISMATCH);
 	}
+	const rawProto = Object.getPrototypeOf(raw);
+	if (rawProto !== Object.prototype && rawProto !== null) {
+		throw new SerializationError('Expected plain object at root', _path, SerializationErrorCode.TYPE_MISMATCH);
+	}
 
 	const discField = (ctor as AnyFn)[D] as string | undefined;
 	if (discField) {

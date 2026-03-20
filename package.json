@@ -13,21 +13,10 @@
 		"utilities"
 	],
 	"exports": {
-		".": {
-			"import": "./dist/index.mjs",
-			"require": "./dist/index.cjs"
-		},
-		"./errors": {
-			"import": "./dist/errors.mjs",
-			"require": "./dist/errors.cjs"
-		},
-		"./utilities": {
-			"import": "./dist/utilities.mjs",
-			"require": "./dist/utilities.cjs"
-		}
+		".": "./dist/index.mjs",
+		"./errors": "./dist/errors.mjs",
+		"./utilities": "./dist/utilities.mjs"
 	},
-	"main": "./dist/index.cjs",
-	"module": "./dist/index.mjs",
 	"types": "./dist/index.d.cts",
 	"files": [
 		"dist"
@@ -48,7 +37,9 @@
 		"dist": "tsdown",
 		"release": "yarn dist && release-it",
 		"lint": "eslint ./src --ext .ts",
-		"test": "vitest run"
+		"test:unit": "vitest run",
+		"test:artifacts": "yarn dist && node test/artifact-smoke.mjs",
+		"test": "yarn test:unit && yarn test:artifacts"
 	},
 	"devDependencies": {
 		"@eslint/eslintrc": "^3.3.5",

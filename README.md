@@ -77,6 +77,7 @@ Marks a property for (de)serialization. All options are optional.
 | `type` | `Constructor \| () => Constructor` | — | Nested class type (use thunk for forward refs) |
 | `isArray` | `boolean` | `false` | Property holds `T[]` |
 | `isMap` | `boolean` | `false` | Property holds `Map<string, T>` |
+| `isSet` | `boolean` | `false` | Property holds `Set<T>` |
 | `optional` | `boolean` | `true` | Skip if key absent; `false` = required |
 | `nullable` | `'ignore' \| 'null' \| 'error'` | `'ignore'` | Behaviour when value is `null` |
 | `defaultValue` | `T \| (() => T)` | — | Default when key is absent |
@@ -111,18 +112,18 @@ console.log(s instanceof Circle); // true
 
 ```ts
 // Deserialization
-deserialize<T>(ctor: Constructor<T>, data: object | string, path?: string, options?: IDeserializeOptions): T
-deserializeArray<T>(ctor: Constructor<T>, data: object[] | string, path?: string, options?: IDeserializeOptions): T[]
+deserialize<T>(ctor: Constructor<T>, data: Record<string, unknown> | string, path?: string, options?: IDeserializeOptions): T
+deserializeArray<T>(ctor: Constructor<T>, data: Record<string, unknown>[] | string, path?: string, options?: IDeserializeOptions): T[]
 fromJSON<T>(ctor: Constructor<T>, json: string): T
 
 // Serialization
-serialize<T>(instance: T, path?: string): Record<string, unknown>
-serializeArray<T>(instances: T[]): Record<string, unknown>[]
+serialize<T extends object>(instance: T, path?: string, options?: ISerializeOptions): Record<string, unknown>
+serializeArray<T extends object>(instances: T[], path?: string, options?: ISerializeOptions): Record<string, unknown>[]
 toJSON<T>(instance: T, space?: number): string
 
 // Utilities
 clone<T>(ctor: Constructor<T>, instance: T): T
-patch<T>(ctor: Constructor<T>, instance: T, partial: object): T
+patch<T>(ctor: Constructor<T>, instance: T, partial: Record<string, unknown>): T
 isSerializable(ctor: Constructor): boolean
 isEnum(obj: unknown): boolean
 ```
@@ -139,12 +140,30 @@ interface IDeserializeOptions {
 	 * Defaults to `false`.
 	 */
 	strict?: boolean;
+
+	/**
+	 * Global key mapping strategy for JSON <-> property name conversion.
+	 * Explicit `@JSONProperty({ name })` values always win.
+	 */
+	namingStrategy?: (propertyKey: string) => string;
 }
 ```
 
 Example:
 ```ts
 const user = deserialize(User, data, '$', { strict: true });
+```
+
+### Serialization Options
+
+```ts
+interface ISerializeOptions {
+	/**
+	 * Global key mapping strategy for property -> JSON key conversion.
+	 * Explicit `@JSONProperty({ name })` values always win.
+	 */
+	namingStrategy?: (propertyKey: string) => string;
+}
 ```
 
 ### Global Naming Strategies

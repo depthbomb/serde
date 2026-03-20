@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { clone, patch, toJSON, fromJSON } from '../src/utilities';
+import { clone, patch, toJSON, fromJSON } from '../dist/utilities.mjs';
 import {
 	Serializable,
 	JSONProperty,
@@ -16,8 +16,8 @@ import {
 	__test_cachedValues,
 	__test_cachedValueSet,
 	NamingStrategies,
-} from '../src';
-import { SerializationError, SerializationErrorCode } from '../src/errors';
+} from '../dist/index.mjs';
+import { SerializationError, SerializationErrorCode } from '../dist/errors.mjs';
 
 // simple class
 @Serializable()
@@ -82,6 +82,9 @@ describe('core serde functionality', () => {
 	test('deserialize rejects non-object root inputs', () => {
 		expect(() => deserialize(User, [] as any)).toThrow(SerializationError);
 		expect(() => deserialize(User, 42 as any)).toThrow(SerializationError);
+		expect(() => deserialize(User, new Map([['x', 1]]) as any)).toThrow(SerializationError);
+		expect(() => deserialize(User, new Set([1]) as any)).toThrow(SerializationError);
+		expect(() => deserialize(User, new Date() as any)).toThrow(SerializationError);
 	});
 });
 
