@@ -623,9 +623,30 @@ class CoerceTest {
 	val!: number;
 }
 
+@Serializable()
+class BooleanCoerceTest {
+	@JSONProperty({ type: Boolean })
+	val!: boolean;
+}
+
 describe('primitive coercion', () => {
 	test('invalid number throws with correct path', () => {
 		expect(() => deserialize(CoerceTest, { val: 'NaN' })).toThrow(SerializationError);
+	});
+
+	test('boolean coercion accepts explicit boolean-like values', () => {
+		expect(deserialize(BooleanCoerceTest, { val: true }).val).toBe(true);
+		expect(deserialize(BooleanCoerceTest, { val: false }).val).toBe(false);
+		expect(deserialize(BooleanCoerceTest, { val: 'true' }).val).toBe(true);
+		expect(deserialize(BooleanCoerceTest, { val: 'false' }).val).toBe(false);
+		expect(deserialize(BooleanCoerceTest, { val: 1 }).val).toBe(true);
+		expect(deserialize(BooleanCoerceTest, { val: 0 }).val).toBe(false);
+	});
+
+	test('boolean coercion rejects ambiguous truthy/falsy values', () => {
+		expect(() => deserialize(BooleanCoerceTest, { val: '0' })).toThrow(SerializationError);
+		expect(() => deserialize(BooleanCoerceTest, { val: 'yes' })).toThrow(SerializationError);
+		expect(() => deserialize(BooleanCoerceTest, { val: 2 })).toThrow(SerializationError);
 	});
 });
 

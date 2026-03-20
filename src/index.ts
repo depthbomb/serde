@@ -229,7 +229,27 @@ function coercePrim(value: unknown, ctor: Constructor, path: string | (() => str
 	}
 
 	if (ctor === Boolean) {
-		return Boolean(value);
+		if (typeof value === 'boolean') {
+			return value;
+		}
+		if (typeof value === 'string') {
+			const normalized = value.trim().toLowerCase();
+			if (normalized === 'true') {
+				return true;
+			}
+			if (normalized === 'false') {
+				return false;
+			}
+		}
+		if (typeof value === 'number') {
+			if (value === 1) {
+				return true;
+			}
+			if (value === 0) {
+				return false;
+			}
+		}
+		throw new SerializationError(`Expected boolean, got "${value}"`, typeof path === 'function' ? path() : path, SerializationErrorCode.TYPE_MISMATCH);
 	}
 
 	if ((ctor as any) === BigInt) {
