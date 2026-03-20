@@ -441,7 +441,7 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 
 			// avoid recursion if the resolved subtype is the same constructor
 			if (sub !== ctor) {
-				return deserialize(sub, raw, _path);
+				return deserialize(sub, raw, _path, options);
 			}
 		}
 	}
@@ -473,7 +473,7 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 			throw new SerializationError(`Expected object for nested type "${(ctorOrEnum as Constructor).name || 'Object'}"`, typeof path === 'function' ? path() : path, SerializationErrorCode.TYPE_MISMATCH);
 		}
 
-		return deserialize(ctorOrEnum as Constructor, val as PlainObj, typeof path === 'function' ? path() : path);
+		return deserialize(ctorOrEnum as Constructor, val as PlainObj, typeof path === 'function' ? path() : path, options);
 	}
 
 	const seenKeys = new Set<string>(); // track which keys we've assigned (for strict mode)

@@ -106,6 +106,13 @@ describe('nested / collection examples', () => {
 		expect(serialize(p)).toEqual(raw);
 	});
 
+	test('strict mode applies to nested objects', () => {
+		expect(() => deserialize(Person, {
+			name: 'Grace',
+			address: { street: '42', city: 'NY', extra: true }
+		}, '$', { strict: true })).toThrow(SerializationError);
+	});
+
 	@Serializable()
 	class Order {
 		@JSONProperty({ type: () => LineItem, isArray: true })
@@ -266,6 +273,27 @@ describe('nested / collection examples', () => {
 			OVERRIDDEN: 'Indeed'
 		});
 	});
+
+	@Serializable()
+	class AccountProfile {
+		@JSONProperty()
+		displayName!: string;
+	}
+
+	@Serializable()
+	class Account {
+		@JSONProperty({ type: () => AccountProfile })
+		profile!: AccountProfile;
+	}
+
+	test('naming strategy applies to nested objects', () => {
+		const payload = {
+			profile: { display_name: 'Alice' }
+		};
+
+		const inst = deserialize(Account, payload, '$', { namingStrategy: NamingStrategies.camelToSnake });
+		expect(inst.profile.displayName).toBe('Alice');
+	});
 });
 
 // defaults/optional/nullable/validation
@@ -360,6 +388,18 @@ describe('polymorphic deserialization', () => {
 
 	test('invalid discriminator value throws', () => {
 		expect(() => deserialize(Shape, { type: 'triangle' } as any)).toThrow(SerializationError);
+	});
+
+	@Serializable()
+	class Drawing {
+		@JSONProperty({ type: () => Shape, isArray: true })
+		shapes!: Shape[];
+	}
+
+	test('strict mode applies inside discriminator-dispatched nested objects', () => {
+		expect(() => deserialize(Drawing, {
+			shapes: [{ type: 'circle', color: 'red', radius: 5, extra: true }]
+		}, '$', { strict: true })).toThrow(SerializationError);
 	});
 });
 
