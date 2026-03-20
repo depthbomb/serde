@@ -14,6 +14,7 @@ import {
 	getEnumValues,
 	__test_enumIsCached,
 	__test_cachedValues,
+	__test_cachedValueSet,
 	NamingStrategies,
 } from '../src';
 import { SerializationError, SerializationErrorCode } from '../src/errors';
@@ -613,6 +614,15 @@ describe('internal caches', () => {
 		const second = getEnumValues(NumericPriority);
 		expect(first).toBe(second); // same reference means it came from cache
 		expect(__test_cachedValues(NumericPriority)).toBe(second);
+	});
+
+	test('enum value set cache is populated and reused', () => {
+		getEnumValues(StringStatus);
+		const first = __test_cachedValueSet(StringStatus);
+		expect(first).toBeDefined();
+		deserialize(Task, { title: 'Task', status: 'ACTIVE', priority: 0 });
+		const second = __test_cachedValueSet(StringStatus);
+		expect(second).toBe(first);
 	});
 });
 

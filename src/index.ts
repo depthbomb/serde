@@ -134,8 +134,9 @@ const P = '__serde_p__';
 const D = '__serde_d__';
 const T = '__serde_t__';
 
-const enumValueCache = new WeakMap<EnumType, (string | number)[]>();
-const enumCache = new WeakSet<EnumType>();
+const enumValueCache    = new WeakMap<EnumType, (string | number)[]>();
+const enumValueSetCache = new WeakMap<EnumType, Set<string | number>>();
+const enumCache         = new WeakSet<EnumType>();
 
 /** Detect if a value is a TypeScript enum object. */
 export function isEnum(obj: unknown): boolean {
@@ -322,6 +323,11 @@ export function __test_cachedValues(enumObj: EnumType): (string | number)[] | un
 	return enumValueCache.get(enumObj);
 }
 
+/** @internal */
+export function __test_cachedValueSet(enumObj: EnumType): Set<string | number> | undefined {
+	return enumValueSetCache.get(enumObj);
+}
+
 /** Get all valid values from an enum object */
 export function getEnumValues(enumObj: Record<string, string | number>): (string | number)[] {
 	const cached = enumValueCache.get(enumObj as EnumType);
@@ -341,7 +347,19 @@ export function getEnumValues(enumObj: Record<string, string | number>): (string
 
 	const arr = Array.from(values);
 	enumValueCache.set(enumObj as EnumType, arr);
+	enumValueSetCache.set(enumObj as EnumType, values);
 	return arr;
+}
+
+/** Get a cached enum value set for O(1) membership checks */
+function getEnumValueSet(enumObj: Record<string, string | number>): Set<string | number> {
+	const cached = enumValueSetCache.get(enumObj as EnumType);
+	if (cached) {
+		return cached;
+	}
+	// Populates both array and set caches.
+	getEnumValues(enumObj);
+	return enumValueSetCache.get(enumObj as EnumType) as Set<string | number>;
 }
 
 /**
@@ -480,8 +498,9 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 		}
 
 		if (isEnum(ctorOrEnum)) {
-			const validValues = getEnumValues(ctorOrEnum as AnyEnum);
-			if (!validValues.includes(val as string | number)) {
+			const validValueSet = getEnumValueSet(ctorOrEnum as AnyEnum);
+			if (!validValueSet.has(val as string | number)) {
+				const validValues = getEnumValues(ctorOrEnum as AnyEnum);
 				throw new SerializationError(`Expected one of [${validValues.join(', ')}], got "${val}"`, typeof path === 'function' ? path() : path, SerializationErrorCode.INVALID_ENUM_VALUE);
 			}
 
