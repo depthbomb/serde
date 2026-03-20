@@ -194,19 +194,37 @@ class Catalog {
 }
 ```
 
-### Dates
+### Sets
+
+```ts
+@Serializable()
+class TagGroup {
+	// Serialized as a plain array ["foo", "bar"]
+	@JSONProperty({ type: String, isSet: true })
+	tags!: Set<string>;
+}
+```
+
+### Dates and URLs
+
+JavaScript `Date` and `URL` objects are supported natively without custom transforms.
 
 ```ts
 @Serializable()
 class Event {
 	@JSONProperty({ type: Date })
 	startDate!: Date;
+
+	@JSONProperty({ type: URL as any }) // or () => URL
+	link!: URL;
 }
 
-const ev = deserialize(Event, { startDate: '2026-03-20T11:23:46.000Z' });
+const ev = deserialize(Event, { 
+	startDate: '2026-03-20T11:23:46.000Z',
+	link: 'https://example.com/foo'
+});
 console.log(ev.startDate.getFullYear()); // 2026
-
-const plain = serialize(ev); // { startDate: '2026-03-20T11:23:46.000Z' }
+console.log(ev.link.pathname); // /foo
 ```
 
 ### Enums

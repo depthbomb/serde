@@ -59,6 +59,11 @@ export interface IJSONPropertyOptions<T = unknown> {
 	 */
 	isMap?: boolean;
 	/**
+	 * Treat the property as a Set<T>.
+	 * Serialized as a plain array; deserialized as a native `Set`.
+	 */
+	isSet?: boolean;
+	/**
 	 * Allow the key to be absent in JSON input.
 	 * Set to `false` to make the property required (throws if missing).
 	 * @default true
@@ -184,7 +189,7 @@ function allMetas(ctor: Constructor): IPropertyMeta[] {
 }
 
 function isPrim(ctor: unknown): boolean {
-	return ctor === String || ctor === Number || ctor === Boolean || (ctor as any) === BigInt || ctor === Date;
+	return ctor === String || ctor === Number || ctor === Boolean || (ctor as any) === BigInt || ctor === Date || ctor === URL;
 }
 
 function coercePrim(value: unknown, ctor: Constructor, path: string | (() => string)): unknown {
@@ -216,6 +221,14 @@ function coercePrim(value: unknown, ctor: Constructor, path: string | (() => str
 		}
 
 		return d;
+	}
+
+	if (ctor === URL) {
+		try {
+			return new URL(String(value));
+		} catch {
+			throw new SerializationError(`Expected valid URL string, got "${value}"`, typeof path === 'function' ? path() : path, SerializationErrorCode.TYPE_MISMATCH);
+		}
 	}
 
 	return value;
@@ -339,6 +352,7 @@ export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {})
 			type: (options.type ?? null) as Required<IJSONPropertyOptions<V>>['type'],
 			isArray: options.isArray ?? false,
 			isMap: options.isMap ?? false,
+			isSet: options.isSet ?? false,
 			optional: options.optional ?? true,
 			nullable: options.nullable ?? 'ignore',
 			deserializeTransform: options.deserializeTransform ?? ((v) => v as V),
@@ -493,6 +507,20 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 			continue;
 		}
 
+		if (options.isSet) {
+			if (!Array.isArray(rawValue)) {
+				throw new SerializationError(`Expected array for set property "${jsonKey}"`, getPath(), SerializationErrorCode.NOT_AN_ARRAY);
+			}
+
+			const set = new Set<unknown>();
+			for (let i = 0; i < rawValue.length; i++) {
+				set.add(convertValue(rawValue[i], NestedCtor, () => `${getPath()}[${i}]`));
+			}
+
+			(instance as PlainObj)[propertyKey] = set;
+			continue;
+		}
+
 		if (options.isArray) {
 			if (!Array.isArray(rawValue)) {
 				throw new SerializationError(`Expected array for property "${jsonKey}"`, getPath(), SerializationErrorCode.NOT_AN_ARRAY);
@@ -593,6 +621,10 @@ export function serialize<V extends object>(instance: V, _path = '$'): PlainObj 
 				return v.toISOString();
 			}
 
+			if (v instanceof URL) {
+				return v.toString();
+			}
+
 			if (typeof v === 'object') {
 				return serialize(v as object, pathGetter());
 			}
@@ -607,6 +639,13 @@ export function serialize<V extends object>(instance: V, _path = '$'): PlainObj 
 			}
 
 			result[jsonKey] = obj;
+			continue;
+		}
+
+		if (options.isSet && value instanceof Set) {
+			result[jsonKey] = Array.from(value as Set<unknown>).map((item, i) =>
+				serializeValue(item, () => `${getPath()}[${i}]`)
+			);
 			continue;
 		}
 

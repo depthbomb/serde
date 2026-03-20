@@ -183,6 +183,49 @@ describe('nested / collection examples', () => {
 	test('invalid Date deserialization throws TYPE_MISMATCH', () => {
 		expect(() => deserialize(DateTest, { date: 'not-a-date' })).toThrow(SerializationError);
 	});
+
+	@Serializable()
+	class CollectionsTest {
+		@JSONProperty({ type: URL as any })
+		url!: URL;
+
+		@JSONProperty({ type: () => Product, isSet: true })
+		productSet!: Set<Product>;
+	}
+
+	test('built-in Set and URL serialization and deserialization', () => {
+		const targetUrl = new URL('https://example.com/foo');
+		const p1 = new Product();
+		p1.price = 10;
+		const p2 = new Product();
+		p2.price = 20;
+
+		const t = new CollectionsTest();
+		t.url = targetUrl;
+		t.productSet = new Set([p1, p2]);
+
+		const plain = serialize(t);
+		expect(plain).toEqual({
+			url: 'https://example.com/foo',
+			productSet: [{ price: 10 }, { price: 20 }]
+		});
+
+		const back = deserialize(CollectionsTest, plain);
+		expect(back.url).toBeInstanceOf(URL);
+		expect(back.url.href).toBe('https://example.com/foo');
+		expect(back.productSet).toBeInstanceOf(Set);
+		expect(back.productSet.size).toBe(2);
+		expect([...back.productSet][0]).toBeInstanceOf(Product);
+		expect([...back.productSet][0].price).toBe(10);
+	});
+
+	test('invalid URL deserialization throws TYPE_MISMATCH', () => {
+		expect(() => deserialize(CollectionsTest, { url: 'not-a-valid-url', productSet: [] })).toThrow(SerializationError);
+	});
+
+	test('invalid Set deserialization throws NOT_AN_ARRAY', () => {
+		expect(() => deserialize(CollectionsTest, { url: 'https://example.com', productSet: {} })).toThrow(SerializationError);
+	});
 });
 
 // defaults/optional/nullable/validation
