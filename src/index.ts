@@ -11,7 +11,7 @@ interface IPropertyMeta<V = unknown> {
 }
 
 /** Any newable constructor */
-export type Constructor<T = unknown> = new (...args: unknown[]) => T;
+export type Constructor<T = unknown> = new (...args: any[]) => T;
 
 /** Lazy type reference, avoids circular-import issues */
 export type TypeFn<T = unknown> = () => Constructor<T> | Record<string, string | number>;

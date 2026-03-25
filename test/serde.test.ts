@@ -1,23 +1,23 @@
-import { describe, test, expect } from 'vitest';
+import { test, expect, describe } from 'vitest';
 import { clone, patch, toJSON, fromJSON } from '../dist/utilities.mjs';
-import {
-	Serializable,
-	JSONProperty,
-	JSONDiscriminator,
-	JSONSubType,
-	deserialize,
-	deserializeArray,
-	serialize,
-	serializeArray,
-	isSerializable,
-	isEnum,
-	getEnumValues,
-	__test_enumIsCached,
-	__test_cachedValues,
-	__test_cachedValueSet,
-	NamingStrategies,
-} from '../dist/index.mjs';
 import { SerializationError, SerializationErrorCode } from '../dist/errors.mjs';
+import {
+	isEnum,
+	serialize,
+	deserialize,
+	JSONSubType,
+	JSONProperty,
+	Serializable,
+	getEnumValues,
+	isSerializable,
+	serializeArray,
+	deserializeArray,
+	NamingStrategies,
+	JSONDiscriminator,
+	__test_cachedValues,
+	__test_enumIsCached,
+	__test_cachedValueSet
+} from '../dist/index.mjs';
 
 // simple class
 @Serializable()
@@ -172,7 +172,7 @@ describe('nested / collection examples', () => {
 		const products = plain.products as Record<string, unknown>;
 		expect(Object.getPrototypeOf(products)).toBeNull();
 		expect(Object.prototype.hasOwnProperty.call(products, '__proto__')).toBe(true);
-		expect(products['__proto__']).toEqual({ price: 7 });
+		expect(products.__proto__).toEqual({ price: 7 });
 	});
 
 	@Serializable()
@@ -214,7 +214,7 @@ describe('nested / collection examples', () => {
 
 	@Serializable()
 	class CollectionsTest {
-		@JSONProperty({ type: URL as any })
+		@JSONProperty({ type: URL })
 		url!: URL;
 
 		@JSONProperty({ type: () => Product, isSet: true })
