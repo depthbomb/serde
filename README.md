@@ -7,12 +7,12 @@ Type-safe JSON ↔ Class serialization for TypeScript
 ## Installation
 
 ```sh
-yarn install @depthbomb/serde
+yarn add @depthbomb/serde
 bun add @depthbomb/serde
 npm install @depthbomb/serde
 ```
 
-Enable TypeScript decorators in `tsconfig.json`:
+Legacy TypeScript decorators use the following setting. Standard ECMAScript field decorators are also supported and do not require `experimentalDecorators`.
 
 ```json
 {
@@ -74,7 +74,9 @@ Marks a property for (de)serialization. All options are optional.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `name` | `string` | property name | JSON key to read/write |
+| `aliases` | `string[]` | `[]` | Legacy JSON keys accepted on input |
 | `type` | `Constructor \| () => Constructor` | — | Nested class type (use thunk for forward refs) |
+| `codec` | `JSONCodec<T>` | — | Reusable typed value ↔ JSON conversion; mutually exclusive with `type` |
 | `isArray` | `boolean` | `false` | Property holds `T[]` |
 | `isMap` | `boolean` | `false` | Property holds `Map<string, T>` |
 | `isSet` | `boolean` | `false` | Property holds `Set<T>` |
@@ -84,6 +86,11 @@ Marks a property for (de)serialization. All options are optional.
 | `deserializeTransform` | `(raw: unknown) => T` | identity | Post-deserialization transform |
 | `serializeTransform` | `(value: T) => unknown` | identity | Pre-serialization transform |
 | `validate` | `(value: T) => boolean \| string \| void` | — | Validator; `false`/string throws |
+| `deserializeAsyncTransform` | `(value: T) => Promise<T>` | — | Async post-deserialization transform |
+| `serializeAsyncTransform` | `(value: T) => Promise<unknown>` | — | Async serialization transform |
+| `validateAsync` | `(value: T) => Promise<boolean \| string \| void>` | — | Async validator |
+| `groups` | `string[]` | `[]` | Named serialization projections |
+| `sensitive` | `boolean` | `false` | Omit unless `includeSensitive` is enabled |
 
 ---
 
@@ -114,18 +121,25 @@ console.log(s instanceof Circle); // true
 // Deserialization
 deserialize<T>(ctor: Constructor<T>, data: Record<string, unknown> | string, path?: string, options?: IDeserializeOptions): T
 deserializeArray<T>(ctor: Constructor<T>, data: Record<string, unknown>[] | string, path?: string, options?: IDeserializeOptions): T[]
+deserializeAsync<T>(ctor: Constructor<T>, data: Record<string, unknown> | string, path?: string, options?: IDeserializeOptions): Promise<T>
+deserializeArrayAsync<T>(...): Promise<T[]>
 fromJSON<T>(ctor: Constructor<T>, json: string): T
+fromJSONAsync<T>(ctor: Constructor<T>, json: string): Promise<T>
 
 // Serialization
 serialize<T extends object>(instance: T, path?: string, options?: ISerializeOptions): Record<string, unknown>
 serializeArray<T extends object>(instances: T[], path?: string, options?: ISerializeOptions): Record<string, unknown>[]
+serializeAsync<T extends object>(instance: T, path?: string, options?: ISerializeOptions): Promise<Record<string, unknown>>
+serializeArrayAsync<T extends object>(...): Promise<Record<string, unknown>[]>
 toJSON<T>(instance: T, space?: number): string
+toJSONAsync<T>(instance: T, space?: number): Promise<string>
 
 // Utilities
 clone<T>(ctor: Constructor<T>, instance: T): T
 patch<T>(ctor: Constructor<T>, instance: T, partial: Record<string, unknown>): T
 isSerializable(ctor: Constructor): boolean
 isEnum(obj: unknown): boolean
+generateJSONSchema(ctor: Constructor, namingStrategy?: NamingStrategy): Record<string, unknown>
 ```
 
 ### Deserialization Options
@@ -146,6 +160,8 @@ interface IDeserializeOptions {
 	 * Explicit `@JSONProperty({ name })` values always win.
 	 */
 	namingStrategy?: (propertyKey: string) => string;
+	unknownProperties?: 'ignore' | 'error' | 'collect';
+	unknownProperty?: string; // destination property for collect mode
 }
 ```
 
@@ -163,8 +179,53 @@ interface ISerializeOptions {
 	 * Explicit `@JSONProperty({ name })` values always win.
 	 */
 	namingStrategy?: (propertyKey: string) => string;
+	groups?: string[];
+	includeSensitive?: boolean;
 }
 ```
+
+### Schema evolution and unknown fields
+
+Aliases accept old names while serialization always emits the canonical name. Version migrations run in order; migration `N` upgrades version `N` to `N + 1`.
+
+```ts
+@Serializable()
+@JSONVersion(2, {
+	migrations: {
+		0: data => ({ ...data, name: data.old_name }),
+		1: data => ({ ...data, fullName: data.name }),
+	},
+})
+class User {
+	@JSONProperty({ aliases: ['name'], optional: false }) fullName!: string;
+}
+
+const value = deserialize(User, payload, '$', {
+	unknownProperties: 'collect',
+	unknownProperty: 'extensions',
+});
+```
+
+Serialization emits the current `$version`. Configure another field with `JSONVersion(..., { field: 'version' })`.
+
+### Codecs and projections
+
+```ts
+const epochCodec: JSONCodec<Date, number> = {
+	serialize: date => date.getTime(),
+	deserialize: value => new Date(value),
+	schema: { type: 'integer' },
+};
+
+class Session {
+	@JSONProperty({ codec: epochCodec }) createdAt!: Date;
+	@JSONProperty({ groups: ['admin'], sensitive: true }) token!: string;
+}
+
+serialize(session, '$', { groups: ['admin'], includeSensitive: true });
+```
+
+`generateJSONSchema(Session)` produces draft 2020-12 JSON Schema, including nested definitions, enums, aliases, groups, nullability, collections, and codec schema fragments.
 
 ### Global Naming Strategies
 
@@ -374,7 +435,7 @@ const updated = patch(User, user, { age: 37 }); // non-destructive update
 
 ## Error handling
 
-All errors are instances of `SerializationError` with a `.path` property (JSON pointer style):
+All library, parser, migration, codec, transform, validation, and constructor failures are exposed as `SerializationError`. Native failures are preserved in `.cause`; `.path` uses JSONPath-style notation:
 
 ```ts
 import { SerializationError } from '@depthbomb/serde';
