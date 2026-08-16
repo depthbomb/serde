@@ -429,6 +429,33 @@ describe('polymorphic deserialization', () => {
 		expect(() => deserialize(Shape, { type: 'triangle' } as any)).toThrow(SerializationError);
 	});
 
+	test('missing discriminator value throws a dedicated error', () => {
+		try {
+			deserialize(Shape, { color: 'red' });
+			expect.fail('should throw');
+		} catch (error) {
+			expect(error).toMatchObject({ code: SerializationErrorCode.MISSING_DISCRIMINATOR, path: '$.type' });
+		}
+	});
+
+	test('serialization emits a registered discriminator', () => {
+		const circle = Object.assign(new Circle(), { color: 'blue', radius: 2 });
+		expect(serialize(circle)).toEqual({ color: 'blue', radius: 2, type: 'circle' });
+	});
+
+	test('a discriminator fallback handles missing fields', () => {
+		class Animal {
+			@JSONProperty()
+			name!: string;
+		}
+		@Serializable()
+		class UnknownAnimal extends Animal {}
+		Serializable()(Animal);
+		JSONDiscriminator('kind', { fallback: UnknownAnimal })(Animal);
+
+		expect(deserialize(Animal, { name: 'mystery' })).toBeInstanceOf(UnknownAnimal);
+	});
+
 	@Serializable()
 	class Drawing {
 		@JSONProperty({ type: () => Shape, isArray: true })

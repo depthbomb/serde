@@ -133,6 +133,7 @@ const S = '__serde_s__';
 const P = '__serde_p__';
 const D = '__serde_d__';
 const T = '__serde_t__';
+const F = '__serde_f__';
 
 const enumValueCache    = new WeakMap<EnumType, (string | number)[]>();
 const enumValueSetCache = new WeakMap<EnumType, Set<string | number>>();
@@ -471,8 +472,18 @@ export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {})
  * \@JSONSubType("rect",   Rectangle)
  * class Shape { ... }
  */
-export function JSONDiscriminator(field: string): ClassDecorator {
-	return (target) => { (target as AnyFn)[D] = field; };
+export interface IJSONDiscriminatorOptions<T = unknown> {
+	/** Constructor used when the discriminator field is absent. */
+	fallback?: Constructor<T>;
+}
+
+export function JSONDiscriminator<T = unknown>(field: string, options: IJSONDiscriminatorOptions<T> = {}): ClassDecorator {
+	return (target) => {
+		(target as AnyFn)[D] = field;
+		if (options.fallback) {
+			(target as AnyFn)[F] = options.fallback;
+		}
+	};
 }
 
 /**
@@ -504,7 +515,15 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 	if (discField) {
 		const discValue = raw[discField] as string;
 		const subtypes = (ctor as AnyFn)[T] as Map<string, Constructor<V>> | undefined;
-		if (subtypes && discValue !== undefined) {
+		if (discValue === undefined) {
+			const fallback = (ctor as AnyFn)[F] as Constructor<V> | undefined;
+			if (!fallback) {
+				throw new SerializationError(`Missing discriminator field "${discField}"`, childPath(_path, discField), SerializationErrorCode.MISSING_DISCRIMINATOR);
+			}
+			if (fallback !== ctor) {
+				return deserialize(fallback, raw, _path, options);
+			}
+		} else if (subtypes) {
 			const sub = subtypes.get(discValue);
 			if (!sub) {
 				throw new SerializationError(`Unknown discriminator value "${discValue}" for field "${discField}"`, _path, SerializationErrorCode.UNKNOWN_DISCRIMINATOR);
@@ -849,6 +868,17 @@ function serializeInternal<V extends object>(instance: V, _path: string, options
 		}
 
 		setObjectKey(result, jsonKey, serializeValue(value, getPath));
+	}
+
+	const discField = (ctor as AnyFn)[D] as string | undefined;
+	const subtypes = (ctor as AnyFn)[T] as Map<string, Constructor> | undefined;
+	if (discField && subtypes && !Object.prototype.hasOwnProperty.call(result, discField)) {
+		for (const [value, subtype] of subtypes) {
+			if (subtype === ctor) {
+				setObjectKey(result, discField, value);
+				break;
+			}
+		}
 	}
 
 	return result;

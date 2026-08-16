@@ -12,6 +12,8 @@ export enum SerializationErrorCode {
 	TYPE_MISMATCH = 'TYPE_MISMATCH',
 	/** A discriminator value doesn't map to a known subtype */
 	UNKNOWN_DISCRIMINATOR = 'UNKNOWN_DISCRIMINATOR',
+	/** A polymorphic input omitted its required discriminator field */
+	MISSING_DISCRIMINATOR = 'MISSING_DISCRIMINATOR',
 	/** An enum value is invalid */
 	INVALID_ENUM_VALUE = 'INVALID_ENUM_VALUE',
 	/** Custom validation function returned false or error string */
