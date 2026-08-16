@@ -47,6 +47,8 @@ export interface IDeserializeOptions {
 	 * unless explicitly overridden per-property via `@JSONProperty({ name })`.
 	 */
 	namingStrategy?: NamingStrategy;
+	unknownProperties?: 'ignore' | 'error' | 'collect';
+	unknownProperty?: string;
 }
 
 export interface ISerializeOptions {
@@ -141,6 +143,7 @@ const P = Symbol('serde.properties');
 const D = Symbol('serde.discriminator');
 const T = Symbol('serde.subtypes');
 const F = Symbol('serde.fallback');
+const V = Symbol('serde.version');
 const metaVersions = new WeakMap<Constructor, number>();
 
 const enumValueCache    = new WeakMap<EnumType, (string | number)[]>();
@@ -597,8 +600,29 @@ export function JSONSubType<V>(value: string, ctor: Constructor<V>): ClassDecora
 	};
 }
 
+export type JSONMigration = (data: Readonly<PlainObj>) => PlainObj;
+
+export interface IJSONVersionOptions {
+	field?: string;
+	migrations?: Readonly<Record<number, JSONMigration>>;
+}
+
+/** Configure versioned input migrations. Migration N upgrades version N to N + 1. */
+export function JSONVersion(current: number, options: IJSONVersionOptions = {}): ClassDecorator {
+	if (!Number.isInteger(current) || current < 0) {
+		throw new Error('@JSONVersion current version must be a non-negative integer.');
+	}
+	return target => {
+		(target as AnyFn)[V] = {
+			current,
+			field: options.field ?? '$version',
+			migrations: options.migrations ?? {},
+		};
+	};
+}
+
 export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _path = '$', options: IDeserializeOptions = {}): V {
-	const raw = (typeof data === 'string' ? parseJSON(data, _path) : data) as PlainObj;
+	let raw = (typeof data === 'string' ? parseJSON(data, _path) : data) as PlainObj;
 	if (raw === null || raw === undefined) {
 		throw new SerializationError('Cannot deserialize null/undefined', _path, SerializationErrorCode.NULL_INPUT);
 	}
@@ -609,6 +633,30 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 	const rawProto = Object.getPrototypeOf(raw);
 	if (rawProto !== Object.prototype && rawProto !== null) {
 		throw new SerializationError('Expected plain object at root', _path, SerializationErrorCode.TYPE_MISMATCH);
+	}
+
+	const versionConfig = (ctor as AnyFn)[V] as { current: number; field: string; migrations: Readonly<Record<number, JSONMigration>> } | undefined;
+	if (versionConfig) {
+		let version = raw[versionConfig.field] === undefined ? 0 : Number(raw[versionConfig.field]);
+		if (!Number.isInteger(version) || version < 0 || version > versionConfig.current) {
+			throw new SerializationError(`Unsupported schema version "${raw[versionConfig.field]}"`, childPath(_path, versionConfig.field), SerializationErrorCode.UNSUPPORTED_VERSION);
+		}
+		while (version < versionConfig.current) {
+			const migration = versionConfig.migrations[version];
+			if (!migration) {
+				throw new SerializationError(`Missing migration from schema version ${version}`, childPath(_path, versionConfig.field), SerializationErrorCode.MIGRATION_FAILED);
+			}
+			try {
+				raw = migration(Object.freeze({ ...raw }));
+			} catch (cause) {
+				throw new SerializationError(`Migration from schema version ${version} failed`, childPath(_path, versionConfig.field), SerializationErrorCode.MIGRATION_FAILED, cause);
+			}
+			if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+				throw new SerializationError(`Migration from schema version ${version} returned a non-object`, _path, SerializationErrorCode.MIGRATION_FAILED);
+			}
+			version++;
+			raw = { ...raw, [versionConfig.field]: version };
+		}
 	}
 
 	const discField = (ctor as AnyFn)[D] as string | undefined;
@@ -678,6 +726,7 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 	}
 
 	const seenKeys = new Set<string>(); // track which keys we've assigned (for strict mode)
+	if (versionConfig) seenKeys.add(versionConfig.field);
 	let instance: V;
 	try {
 		instance = new ctor();
@@ -795,11 +844,22 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 		(instance as PlainObj)[propertyKey] = rawValue;
 	}
 
-	if (options.strict) {
+	const unknownMode = options.unknownProperties ?? (options.strict ? 'error' : 'ignore');
+	if (unknownMode !== 'ignore') {
+		const unknown = Object.create(null) as PlainObj;
 		for (const k of Object.keys(raw)) {
 			if (!seenKeys.has(k)) {
-				throw new SerializationError(`Unexpected property "${k}" in strict mode`, childPath(_path, k), SerializationErrorCode.UNEXPECTED_PROPERTY);
+				if (unknownMode === 'error') {
+					throw new SerializationError(`Unexpected property "${k}"`, childPath(_path, k), SerializationErrorCode.UNEXPECTED_PROPERTY);
+				}
+				Object.defineProperty(unknown, k, { value: raw[k], enumerable: true, configurable: true, writable: true });
 			}
+		}
+		if (unknownMode === 'collect') {
+			if (!options.unknownProperty) {
+				throw new SerializationError('unknownProperty is required when collecting unknown keys', _path, SerializationErrorCode.UNEXPECTED_PROPERTY);
+			}
+			Object.defineProperty(instance as object, options.unknownProperty, { value: unknown, enumerable: true, configurable: true, writable: true });
 		}
 	}
 
@@ -1003,6 +1063,10 @@ function serializeInternal<V extends object>(instance: V, _path: string, options
 				break;
 			}
 		}
+	}
+	const versionConfig = (ctor as AnyFn)[V] as { current: number; field: string } | undefined;
+	if (versionConfig) {
+		setObjectKey(result, versionConfig.field, versionConfig.current);
 	}
 
 	return result;

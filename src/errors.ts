@@ -32,6 +32,8 @@ export enum SerializationErrorCode {
 	CONSTRUCTION_FAILED = 'CONSTRUCTION_FAILED',
 	/** A configured transform or default factory threw */
 	TRANSFORM_FAILED = 'TRANSFORM_FAILED',
+	MIGRATION_FAILED = 'MIGRATION_FAILED',
+	UNSUPPORTED_VERSION = 'UNSUPPORTED_VERSION',
 }
 
 export class SerializationError extends Error {

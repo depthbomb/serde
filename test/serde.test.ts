@@ -15,6 +15,7 @@ import {
 	deserializeArray,
 	NamingStrategies,
 	JSONDiscriminator,
+	JSONVersion,
 	generateJSONSchema,
 	__test_cachedValues,
 	__test_enumIsCached,
@@ -473,6 +474,40 @@ describe('polymorphic deserialization', () => {
 // miscellaneous behaviours
 // undecorated objects now throw during serialization
 describe('miscellaneous behaviours', () => {
+	test('unknown properties can be collected safely', () => {
+		@Serializable()
+		class Extensible {
+			@JSONProperty()
+			known!: string;
+			extra!: Record<string, unknown>;
+		}
+
+		const value = deserialize(Extensible, { known: 'yes', future: 1, '__proto__': 2 }, '$', {
+			unknownProperties: 'collect',
+			unknownProperty: 'extra',
+		});
+		expect(value.extra.future).toBe(1);
+		expect(Object.getPrototypeOf(value.extra)).toBeNull();
+	});
+
+	test('versioned schemas migrate old input and emit the current version', () => {
+		class VersionedUser {
+			@JSONProperty({ optional: false })
+			fullName!: string;
+		}
+		Serializable()(VersionedUser);
+		JSONVersion(2, {
+			migrations: {
+				0: data => ({ ...data, name: data.legacyName }),
+				1: data => ({ ...data, fullName: data.name }),
+			},
+		})(VersionedUser);
+
+		const value = deserialize(VersionedUser, { legacyName: 'Ada' });
+		expect(value.fullName).toBe('Ada');
+		expect(serialize(value)).toEqual({ fullName: 'Ada', '$version': 2 });
+		expect(() => deserialize(VersionedUser, { '$version': 3, fullName: 'Future' })).toThrow(SerializationError);
+	});
 	test('aliases are accepted in strict mode but serialization uses the canonical name', () => {
 		@Serializable()
 		class Aliased {
