@@ -35,13 +35,14 @@
 	},
 	"scripts": {
 		"build": "tsc --noEmit",
+		"typecheck:test": "tsc -p tsconfig.test.json",
 		"dist": "tsdown",
 		"release": "yarn dist && release-it",
 		"lint": "eslint ./src --ext .ts",
 		"test:unit": "vitest run",
 		"test:package": "yarn dist && node test/package-smoke.mjs",
 		"test": "yarn test:unit",
-		"check": "yarn build && yarn lint && yarn test && yarn test:package"
+		"check": "yarn build && yarn typecheck:test && yarn lint && yarn test && yarn test:package"
 	},
 	"devDependencies": {
 		"@eslint/eslintrc": "^3.3.6",
