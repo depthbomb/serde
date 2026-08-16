@@ -1,5 +1,6 @@
-import { serialize, deserialize } from './';
-import type { Constructor } from './';
+import { serialize, deserialize, getJSONProperties } from './';
+import type { Constructor, IDeserializeOptions, ISerializeOptions } from './';
+import { SerializationError, SerializationErrorCode } from './errors';
 
 /**
  * Serialize to a JSON string.
@@ -45,30 +46,32 @@ export function clone<V extends object>(ctor: Constructor<V>, instance: V): V {
  * @example
  * const updated = patch(User, user, { age: 37 });
  */
-export function patch<V extends object>(ctor: Constructor<V>, instance: V, partial: Record<string, unknown>): V {
-	const next = { ...serialize(instance), ...partial } as Record<string, unknown>;
+export interface IPatchOptions extends IDeserializeOptions, ISerializeOptions {
+	/** Reject patch keys that are neither property names nor serialized JSON names. */
+	strictPatch?: boolean;
+}
 
-	// Support TS property keys in patch input, even when @JSONProperty({ name }) remaps JSON keys.
-	const P    = '__serde_p__';
-	const seen = new Set<string>();
+export function patch<V extends object>(ctor: Constructor<V>, instance: V, partial: Record<string, unknown>, options: IPatchOptions = {}): V {
+	const next = { ...serialize(instance, '$', options), ...partial } as Record<string, unknown>;
+	const mappings = getJSONProperties(ctor, options.namingStrategy);
+	const allowed = new Set(mappings.flatMap(({ propertyKey, jsonKey }) => [propertyKey, jsonKey]));
 
-	let proto: object | null = ctor as unknown as object;
-	while (proto && proto !== Function.prototype && proto !== Object.prototype) {
-		if (Object.prototype.hasOwnProperty.call(proto, P)) {
-			for (const meta of (proto as Record<string, unknown>)[P] as Array<{ propertyKey: string; options: { name: string } }>) {
-				if (seen.has(meta.propertyKey)) {
-					continue;
-				}
-
-				seen.add(meta.propertyKey);
-				if (Object.prototype.hasOwnProperty.call(partial, meta.propertyKey)) {
-					next[meta.options.name] = partial[meta.propertyKey];
-				}
+	if (options.strictPatch) {
+		for (const key of Object.keys(partial)) {
+			if (!allowed.has(key)) {
+				throw new SerializationError(`Unexpected patch property "${key}"`, `$[${JSON.stringify(key)}]`, SerializationErrorCode.UNEXPECTED_PROPERTY);
 			}
 		}
-
-		proto = Object.getPrototypeOf(proto);
 	}
 
-	return deserialize(ctor, next);
+	for (const { propertyKey, jsonKey } of mappings) {
+		if (Object.prototype.hasOwnProperty.call(partial, propertyKey)) {
+			next[jsonKey] = partial[propertyKey];
+			if (propertyKey !== jsonKey) {
+				delete next[propertyKey];
+			}
+		}
+	}
+
+	return deserialize(ctor, next, '$', options);
 }

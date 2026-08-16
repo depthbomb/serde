@@ -505,6 +505,34 @@ describe('miscellaneous behaviours', () => {
 		expect(updated.age).toBe(25);
 	});
 
+	test('patch respects naming strategies and can reject unknown keys', () => {
+		@Serializable()
+		class PatchNaming {
+			@JSONProperty()
+			firstName!: string;
+		}
+
+		const original = Object.assign(new PatchNaming(), { firstName: 'Old' });
+		const updated = patch(PatchNaming, original, { firstName: 'New' }, {
+			namingStrategy: NamingStrategies.camelToSnake,
+			strictPatch: true,
+		});
+		expect(updated.firstName).toBe('New');
+		expect(() => patch(PatchNaming, original, { unknown: true }, { strictPatch: true })).toThrow(SerializationError);
+	});
+
+	test('metadata caches refresh after manual decorator application', () => {
+		class Dynamic {
+			first!: string;
+			second!: string;
+		}
+		Serializable()(Dynamic);
+		JSONProperty()(Dynamic.prototype, 'first');
+		expect(serialize(Object.assign(new Dynamic(), { first: 'a', second: 'b' }))).toEqual({ first: 'a' });
+		JSONProperty()(Dynamic.prototype, 'second');
+		expect(serialize(Object.assign(new Dynamic(), { first: 'a', second: 'b' }))).toEqual({ first: 'a', second: 'b' });
+	});
+
 	test('serializeTransform may return a plain JSON object', () => {
 		@Serializable()
 		class Wrapped {
@@ -743,6 +771,7 @@ describe('internal caches', () => {
 		const second = getEnumValues(NumericPriority);
 		expect(first).toBe(second); // same reference means it came from cache
 		expect(__test_cachedValues(NumericPriority)).toBe(second);
+		expect(Object.isFrozen(second)).toBe(true);
 	});
 
 	test('enum value set cache is populated and reused', () => {

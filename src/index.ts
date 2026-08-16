@@ -1,6 +1,6 @@
 import { SerializationError, SerializationErrorCode } from './errors';
 
-type AnyFn    = Constructor & Record<string, unknown>;
+type AnyFn    = Constructor & Record<PropertyKey, unknown>;
 type PlainObj = Record<string, unknown>;
 type AnyEnum  = Record<string, string | number>;
 
@@ -124,16 +124,12 @@ export interface IJSONPropertyOptions<T = unknown> {
 	validate?: (value: T) => boolean | string | void;
 }
 
-// Ctor.__serde_s__  = true                     (@Serializable marker)
-// Ctor.__serde_p__  = IPropertyMeta[]          (own, not inherited)
-// Ctor.__serde_d__  = string                   (discriminator field)
-// Ctor.__serde_t__  = Map<string, Constructor> (subtype registry)
-
-const S = '__serde_s__';
-const P = '__serde_p__';
-const D = '__serde_d__';
-const T = '__serde_t__';
-const F = '__serde_f__';
+const S = Symbol('serde.serializable');
+const P = Symbol('serde.properties');
+const D = Symbol('serde.discriminator');
+const T = Symbol('serde.subtypes');
+const F = Symbol('serde.fallback');
+const metaVersions = new WeakMap<Constructor, number>();
 
 const enumValueCache    = new WeakMap<EnumType, (string | number)[]>();
 const enumValueSetCache = new WeakMap<EnumType, Set<string | number>>();
@@ -187,7 +183,13 @@ export function isEnum(obj: unknown): boolean {
 }
 
 /** Collect all \@JSONProperty metas walking the prototype chain (child wins). */
-const metasCache = new WeakMap<Constructor, IPropertyMeta[]>();
+interface IMetaCacheEntry {
+	owners: AnyFn[];
+	versions: number[];
+	result: IPropertyMeta[];
+}
+
+const metasCache = new WeakMap<Constructor, IMetaCacheEntry>();
 
 function ownMetas(ctor: AnyFn): IPropertyMeta[] {
 	if (!Object.prototype.hasOwnProperty.call(ctor, P)) {
@@ -198,28 +200,38 @@ function ownMetas(ctor: AnyFn): IPropertyMeta[] {
 }
 
 function allMetas(ctor: Constructor): IPropertyMeta[] {
+	const owners: AnyFn[] = [];
+	let owner: object | null = ctor;
+	while (owner && owner !== Function.prototype && owner !== Object.prototype) {
+		if (Object.prototype.hasOwnProperty.call(owner, P)) {
+			owners.push(owner as AnyFn);
+		}
+		owner = Object.getPrototypeOf(owner) as object | null;
+	}
+
 	const cached = metasCache.get(ctor);
-	if (cached) {
-		return cached;
+	if (cached && cached.owners.length === owners.length && cached.owners.every((item, index) =>
+		item === owners[index] && cached.versions[index] === (metaVersions.get(item) ?? 0)
+	)) {
+		return cached.result;
 	}
 
 	const result = [] as IPropertyMeta[];
 	const seen = new Set<string>();
-	let proto: object | null = ctor;
-	while (proto && proto !== Function.prototype && proto !== Object.prototype) {
-		if (Object.prototype.hasOwnProperty.call(proto, P)) {
-			for (const m of (proto as AnyFn)[P] as IPropertyMeta[]) {
+	for (const proto of owners) {
+			for (const m of proto[P] as IPropertyMeta[]) {
 				if (!seen.has(m.propertyKey)) {
 					seen.add(m.propertyKey);
 					result.push(m);
 				}
 			}
-		}
-
-		proto = Object.getPrototypeOf(proto) as object | null;
 	}
 
-	metasCache.set(ctor, result);
+	metasCache.set(ctor, {
+		owners,
+		versions: owners.map(item => metaVersions.get(item) ?? 0),
+		result,
+	});
 
 	return result;
 }
@@ -366,7 +378,7 @@ export function getEnumValues(enumObj: Record<string, string | number>): (string
 		}
 	}
 
-	const arr = Array.from(values);
+	const arr = Object.freeze(Array.from(values)) as (string | number)[];
 	enumValueCache.set(enumObj as EnumType, arr);
 	enumValueSetCache.set(enumObj as EnumType, values);
 	return arr;
@@ -458,7 +470,16 @@ export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {})
 		} else {
 			metas.push(entry as IPropertyMeta<unknown>);
 		}
+		metaVersions.set(ctor, (metaVersions.get(ctor) ?? 0) + 1);
 	};
+}
+
+/** Read-only property-to-JSON mappings for a serializable class. */
+export function getJSONProperties(ctor: Constructor, namingStrategy?: NamingStrategy): ReadonlyArray<Readonly<{ propertyKey: string; jsonKey: string }>> {
+	return allMetas(ctor).map(({ propertyKey, options, explicitName }) => Object.freeze({
+		propertyKey,
+		jsonKey: explicitName ? options.name : (namingStrategy ? namingStrategy(propertyKey) : options.name),
+	}));
 }
 
 /**
