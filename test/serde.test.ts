@@ -1,6 +1,6 @@
 import { test, expect, describe } from 'vitest';
-import { clone, patch, toJSON, fromJSON } from '../dist/utilities.mjs';
-import { SerializationError, SerializationErrorCode } from '../dist/errors.mjs';
+import { clone, patch, toJSON, fromJSON } from '../src/utilities';
+import { SerializationError, SerializationErrorCode } from '../src/errors';
 import {
 	isEnum,
 	serialize,
@@ -17,7 +17,7 @@ import {
 	__test_cachedValues,
 	__test_enumIsCached,
 	__test_cachedValueSet
-} from '../dist/index.mjs';
+} from '../src/index';
 
 // simple class
 @Serializable()
