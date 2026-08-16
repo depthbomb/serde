@@ -770,6 +770,47 @@ class Required {
 }
 
 describe('error codes', () => {
+	test('malformed JSON is wrapped with its native cause', () => {
+		try {
+			deserialize(Required, '{');
+			expect.fail('should throw');
+		} catch (error) {
+			expect(error).toMatchObject({ code: SerializationErrorCode.INVALID_JSON, path: '$' });
+			expect((error as SerializationError).cause).toBeInstanceOf(SyntaxError);
+		}
+	});
+
+	test('constructor failures are wrapped', () => {
+		class BrokenConstructor {
+			public constructor() {
+				throw new Error('boom');
+			}
+		}
+		Serializable()(BrokenConstructor);
+
+		expect(() => deserialize(BrokenConstructor, {})).toThrow(SerializationError);
+		try {
+			deserialize(BrokenConstructor, {});
+		} catch (error) {
+			expect(error).toMatchObject({ code: SerializationErrorCode.CONSTRUCTION_FAILED });
+			expect((error as SerializationError).cause).toBeInstanceOf(Error);
+		}
+	});
+
+	test('transform failures are wrapped at escaped paths', () => {
+		@Serializable()
+		class BrokenTransform {
+			@JSONProperty({ name: 'not.safe', deserializeTransform: () => { throw new Error('boom'); } })
+			value!: string;
+		}
+
+		try {
+			deserialize(BrokenTransform, { 'not.safe': 'x' });
+			expect.fail('should throw');
+		} catch (error) {
+			expect(error).toMatchObject({ code: SerializationErrorCode.TRANSFORM_FAILED, path: '$["not.safe"]' });
+		}
+	});
 	test('MISSING_PROPERTY code on required field', () => {
 		try {
 			deserialize(Required, {});

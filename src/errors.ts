@@ -1,5 +1,7 @@
 /** Error codes for SerializationError enabling type-safe error handling */
 export enum SerializationErrorCode {
+	/** A JSON string could not be parsed */
+	INVALID_JSON = 'INVALID_JSON',
 	/** Input or instance is null/undefined when it shouldn't be */
 	NULL_INPUT = 'NULL_INPUT',
 	/** A required property is missing from the input */
@@ -24,6 +26,10 @@ export enum SerializationErrorCode {
 	INVALID_COLLECTION = 'INVALID_COLLECTION',
 	/** A circular object reference was encountered */
 	CIRCULAR_REFERENCE = 'CIRCULAR_REFERENCE',
+	/** A class constructor threw while creating an instance */
+	CONSTRUCTION_FAILED = 'CONSTRUCTION_FAILED',
+	/** A configured transform or default factory threw */
+	TRANSFORM_FAILED = 'TRANSFORM_FAILED',
 }
 
 export class SerializationError extends Error {

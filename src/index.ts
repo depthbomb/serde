@@ -138,6 +138,18 @@ const enumValueCache    = new WeakMap<EnumType, (string | number)[]>();
 const enumValueSetCache = new WeakMap<EnumType, Set<string | number>>();
 const enumCache         = new WeakSet<EnumType>();
 
+function childPath(path: string, key: string): string {
+	return /^[A-Za-z_$][\w$]*$/.test(key) ? `${path}.${key}` : `${path}[${JSON.stringify(key)}]`;
+}
+
+function parseJSON(value: string, path: string): unknown {
+	try {
+		return JSON.parse(value);
+	} catch (cause) {
+		throw new SerializationError('Invalid JSON input', path, SerializationErrorCode.INVALID_JSON, cause);
+	}
+}
+
 /** Detect if a value is a TypeScript enum object. */
 export function isEnum(obj: unknown): boolean {
 	if (enumCache.has(obj as EnumType)) {
@@ -254,7 +266,11 @@ function coercePrim(value: unknown, ctor: Constructor, path: string | (() => str
 	}
 
 	if ((ctor as any) === BigInt) {
-		return (BigInt as any)(value);
+		try {
+			return (BigInt as any)(value);
+		} catch (cause) {
+			throw new SerializationError(`Expected valid BigInt value, got "${value}"`, typeof path === 'function' ? path() : path, SerializationErrorCode.TYPE_MISMATCH, cause);
+		}
 	}
 
 	if (ctor === Date) {
@@ -303,14 +319,18 @@ function resolveType<V>(options: Required<IJSONPropertyOptions<V>>): Constructor
 	return t as any;
 }
 
-function resolveDefault<V>(options: Required<IJSONPropertyOptions<V>>): V | undefined {
+function resolveDefault<V>(options: Required<IJSONPropertyOptions<V>>, path: string): V | undefined {
 	if (options.defaultValue === undefined) {
 		return undefined;
 	}
 
-	return typeof options.defaultValue === 'function'
-		? (options.defaultValue as () => V)()
-		: options.defaultValue;
+	try {
+		return typeof options.defaultValue === 'function'
+			? (options.defaultValue as () => V)()
+			: options.defaultValue;
+	} catch (cause) {
+		throw new SerializationError('Default value factory failed', path, SerializationErrorCode.TRANSFORM_FAILED, cause);
+	}
 }
 
 /** @internal */
@@ -467,7 +487,7 @@ export function JSONSubType<V>(value: string, ctor: Constructor<V>): ClassDecora
 }
 
 export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _path = '$', options: IDeserializeOptions = {}): V {
-	const raw = (typeof data === 'string' ? JSON.parse(data) : data) as PlainObj;
+	const raw = (typeof data === 'string' ? parseJSON(data, _path) : data) as PlainObj;
 	if (raw === null || raw === undefined) {
 		throw new SerializationError('Cannot deserialize null/undefined', _path, SerializationErrorCode.NULL_INPUT);
 	}
@@ -532,12 +552,17 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 	}
 
 	const seenKeys = new Set<string>(); // track which keys we've assigned (for strict mode)
-	const instance = new ctor();
+	let instance: V;
+	try {
+		instance = new ctor();
+	} catch (cause) {
+		throw new SerializationError(`Constructor for "${ctor.name || 'Object'}" failed`, _path, SerializationErrorCode.CONSTRUCTION_FAILED, cause);
+	}
 	const metas = allMetas(ctor);
 	for (const meta of metas) {
 		const { propertyKey, options: metaOptions, explicitName } = meta;
 		const jsonKey = explicitName ? metaOptions.name : (options.namingStrategy ? options.namingStrategy(propertyKey) : metaOptions.name);
-		const getPath = () => `${_path}.${jsonKey}`;
+		const getPath = () => childPath(_path, jsonKey);
 		const hasKey = Object.prototype.hasOwnProperty.call(raw, jsonKey);
 
 		let rawValue: unknown = hasKey ? raw[jsonKey] : undefined;
@@ -547,9 +572,14 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 		}
 
 		if (rawValue === undefined) {
-			const def = resolveDefault(metaOptions);
+			const def = resolveDefault(metaOptions, getPath());
 			if (def !== undefined) {
-				const vResult = metaOptions.validate(def);
+				let vResult: boolean | string | void;
+				try {
+					vResult = metaOptions.validate(def);
+				} catch (cause) {
+					throw new SerializationError(`Validation failed for property "${jsonKey}"`, getPath(), SerializationErrorCode.VALIDATION_FAILED, cause);
+				}
 				if (vResult === false || typeof vResult === 'string') {
 					throw new SerializationError(typeof vResult === 'string' ? vResult : `Validation failed for property "${jsonKey}"`, getPath(), SerializationErrorCode.VALIDATION_FAILED);
 				}
@@ -584,7 +614,7 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 			const map = new Map<string, unknown>();
 			for (const [k, v] of Object.entries(rawValue as PlainObj)) {
 				// convertValue handles null/undefined, enum validation, and recursion
-				map.set(k, convertValue(v, NestedCtor, () => `${getPath()}["${k}"]`));
+				map.set(k, convertValue(v, NestedCtor, () => childPath(getPath(), k)));
 			}
 
 			(instance as PlainObj)[propertyKey] = map;
@@ -619,9 +649,18 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 			rawValue = convertValue(rawValue, NestedCtor, getPath);
 		}
 
-		rawValue = metaOptions.deserializeTransform(rawValue);
+		try {
+			rawValue = metaOptions.deserializeTransform(rawValue);
+		} catch (cause) {
+			throw new SerializationError(`Deserialization transform failed for property "${jsonKey}"`, getPath(), SerializationErrorCode.TRANSFORM_FAILED, cause);
+		}
 
-		const vResult = metaOptions.validate(rawValue as V);
+		let vResult: boolean | string | void;
+		try {
+			vResult = metaOptions.validate(rawValue as V);
+		} catch (cause) {
+			throw new SerializationError(`Validation failed for property "${jsonKey}"`, getPath(), SerializationErrorCode.VALIDATION_FAILED, cause);
+		}
 		if (vResult === false || typeof vResult === 'string') {
 			throw new SerializationError(typeof vResult === 'string' ? vResult : `Validation failed for property "${jsonKey}"`, getPath(), SerializationErrorCode.VALIDATION_FAILED);
 		}
@@ -632,7 +671,7 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 	if (options.strict) {
 		for (const k of Object.keys(raw)) {
 			if (!seenKeys.has(k)) {
-				throw new SerializationError(`Unexpected property "${k}" in strict mode`, _path, SerializationErrorCode.UNEXPECTED_PROPERTY);
+				throw new SerializationError(`Unexpected property "${k}" in strict mode`, childPath(_path, k), SerializationErrorCode.UNEXPECTED_PROPERTY);
 			}
 		}
 	}
@@ -647,7 +686,7 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
  * const users = deserializeArray(User, '[{"first_name":"Ada",...}]');
  */
 export function deserializeArray<V>(ctor: Constructor<V>, data: PlainObj[] | string, path = '$', options: IDeserializeOptions = {}): V[] {
-	const raw = typeof data === 'string' ? (JSON.parse(data) as PlainObj[]) : data;
+	const raw = typeof data === 'string' ? (parseJSON(data, path) as PlainObj[]) : data;
 	if (!Array.isArray(raw)) {
 		throw new SerializationError('Expected an array at root', path, SerializationErrorCode.NOT_AN_ARRAY);
 	}
@@ -694,11 +733,20 @@ function serializeInternal<V extends object>(instance: V, _path: string, options
 	for (const meta of metas) {
 		const { propertyKey, options: metaOptions, explicitName } = meta;
 		const jsonKey = explicitName ? metaOptions.name : (options.namingStrategy ? options.namingStrategy(propertyKey) : metaOptions.name);
-		const getPath = () => `${_path}.${jsonKey}`;
+		const getPath = () => childPath(_path, jsonKey);
 
-		let value: unknown = (instance as PlainObj)[propertyKey];
+		let value: unknown;
+		try {
+			value = (instance as PlainObj)[propertyKey];
+		} catch (cause) {
+			throw new SerializationError(`Reading property "${propertyKey}" failed`, getPath(), SerializationErrorCode.TRANSFORM_FAILED, cause);
+		}
 		if (value !== undefined && value !== null) {
-			value = metaOptions.serializeTransform(value as never) as unknown;
+			try {
+				value = metaOptions.serializeTransform(value as never) as unknown;
+			} catch (cause) {
+				throw new SerializationError(`Serialization transform failed for property "${propertyKey}"`, getPath(), SerializationErrorCode.TRANSFORM_FAILED, cause);
+			}
 		}
 
 		if (value === null || value === undefined) {
@@ -753,7 +801,7 @@ function serializeInternal<V extends object>(instance: V, _path: string, options
 					try {
 						const plain = Object.create(null) as PlainObj;
 						for (const [key, item] of Object.entries(v as PlainObj)) {
-							setObjectKey(plain, key, serializeValue(item, () => `${valuePath}.${key}`));
+							setObjectKey(plain, key, serializeValue(item, () => childPath(valuePath, key)));
 						}
 						return plain;
 					} finally {
@@ -779,7 +827,7 @@ function serializeInternal<V extends object>(instance: V, _path: string, options
 		if (metaOptions.isMap) {
 			const obj = Object.create(null) as PlainObj;
 			for (const [k, v] of (value as Map<string, unknown>)) {
-				setObjectKey(obj, k, serializeValue(v, () => `${getPath()}["${k}"]`));
+				setObjectKey(obj, k, serializeValue(v, () => childPath(getPath(), k)));
 			}
 
 			setObjectKey(result, jsonKey, obj);
