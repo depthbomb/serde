@@ -598,6 +598,7 @@ export function generateJSONSchema(ctor: Constructor, namingStrategy?: NamingStr
 		if ((type as unknown) === BigInt) return { type: 'string', pattern: '^-?\\d+$' };
 		if (type === Date) return { type: 'string', format: 'date-time' };
 		if (type === URL) return { type: 'string', format: 'uri' };
+		if (type === ctor && building.has(type)) return { $ref: '#' };
 		buildDefinition(type as Constructor);
 		return { $ref: `#/$defs/${(type as Constructor).name || 'Anonymous'}` };
 	};
