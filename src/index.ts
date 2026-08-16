@@ -501,7 +501,10 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 			return val;
 		}
 
-		if (isEnum(ctorOrEnum)) {
+		// An object supplied as explicit type metadata can only represent an enum.
+		// This contextual check also supports one-member string enums, which are
+		// otherwise indistinguishable from arbitrary one-property objects at runtime.
+		if (typeof ctorOrEnum === 'object' || isEnum(ctorOrEnum)) {
 			const validValueSet = getEnumValueSet(ctorOrEnum as AnyEnum);
 			if (!validValueSet.has(val as string | number)) {
 				const validValues = getEnumValues(ctorOrEnum as AnyEnum);
@@ -541,6 +544,10 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 		if (rawValue === undefined) {
 			const def = resolveDefault(metaOptions);
 			if (def !== undefined) {
+				const vResult = metaOptions.validate(def);
+				if (vResult === false || typeof vResult === 'string') {
+					throw new SerializationError(typeof vResult === 'string' ? vResult : `Validation failed for property "${jsonKey}"`, getPath(), SerializationErrorCode.VALIDATION_FAILED);
+				}
 				(instance as PlainObj)[propertyKey] = def;
 				continue;
 			}

@@ -354,6 +354,24 @@ describe('defaults/required/nullable/validation', () => {
 		expect(() => deserialize(Positive, { value: -1 })).toThrow(SerializationError);
 	});
 
+	test('default values are validated', () => {
+		@Serializable()
+		class InvalidDefault {
+			@JSONProperty({ defaultValue: -1, validate: (v: number) => v > 0 })
+			value!: number;
+		}
+
+		try {
+			deserialize(InvalidDefault, {});
+			expect.fail('should throw');
+		} catch (error) {
+			expect(error).toMatchObject({
+				code: SerializationErrorCode.VALIDATION_FAILED,
+				path: '$.value',
+			});
+		}
+	});
+
 	@Serializable()
 	class TransformOptional {
 		@JSONProperty({
@@ -468,6 +486,10 @@ enum StringStatus {
 	Pending = 'PENDING'
 }
 
+enum SingleStatus {
+	Only = 'ONLY'
+}
+
 enum NumericPriority {
 	Low = 0,
 	Medium = 1,
@@ -505,6 +527,15 @@ class TaskList {
 }
 
 describe('enum support', () => {
+	test('single-member string enum deserializes', () => {
+		@Serializable()
+		class SingleEnumValue {
+			@JSONProperty({ type: () => SingleStatus })
+			status!: SingleStatus;
+		}
+
+		expect(deserialize(SingleEnumValue, { status: 'ONLY' }).status).toBe(SingleStatus.Only);
+	});
 	test('string enum deserializes and serializes', () => {
 		const raw = { title: 'Fix bug', status: 'ACTIVE', priority: 1 };
 		const task = deserialize(Task, raw);
