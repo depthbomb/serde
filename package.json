@@ -3,6 +3,7 @@
 	"version": "1.0.1",
 	"description": "Type-safe JSON ↔ Class serialization for TypeScript",
 	"license": "MIT",
+	"type": "module",
 	"engines": {
 		"node": ">=22"
 	},
@@ -38,8 +39,9 @@
 		"release": "yarn dist && release-it",
 		"lint": "eslint ./src --ext .ts",
 		"test:unit": "vitest run",
+		"test:package": "yarn dist && node test/package-smoke.mjs",
 		"test": "yarn test:unit",
-		"check": "yarn build && yarn lint && yarn test && yarn dist"
+		"check": "yarn build && yarn lint && yarn test && yarn test:package"
 	},
 	"devDependencies": {
 		"@eslint/eslintrc": "^3.3.6",

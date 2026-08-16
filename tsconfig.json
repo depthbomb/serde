@@ -15,8 +15,8 @@
 		"useUnknownInCatchVariables": true,
 
 		// Modules
-		"module": "nodenext",
-		"moduleResolution": "nodenext",
+		"module": "esnext",
+		"moduleResolution": "bundler",
 		"resolveJsonModule": true,
 		"types": ["node"],
 
