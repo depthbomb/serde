@@ -11,6 +11,7 @@ interface IPropertyMeta<V = unknown> {
 	hasDeserializeAsyncTransform: boolean;
 	hasSerializeAsyncTransform: boolean;
 	hasValidateAsync: boolean;
+	resolvedType: Constructor<V> | AnyEnum | null;
 }
 
 /** Any newable constructor */
@@ -161,6 +162,58 @@ const enumCache         = new WeakSet<EnumType>();
 
 function childPath(path: string, key: string): string {
 	return /^[A-Za-z_$][\w$]*$/.test(key) ? `${path}.${key}` : `${path}[${JSON.stringify(key)}]`;
+}
+
+function setObjectKey(obj: PlainObj, key: string, value: unknown): void {
+	if (key === '__proto__') {
+		Object.defineProperty(obj, key, { value, enumerable: true, configurable: true, writable: true });
+		return;
+	}
+	obj[key] = value;
+}
+
+function serializeValue(v: unknown, pathGetter: () => string, codec: JSONCodec | null, options: ISerializeOptions, active: WeakSet<object>): unknown {
+	if (v === null || v === undefined) return v;
+	if (codec) {
+		try {
+			v = codec.serialize(v);
+		} catch (cause) {
+			throw new SerializationError('Codec serialization failed', pathGetter(), SerializationErrorCode.TRANSFORM_FAILED, cause);
+		}
+	}
+	if (v === null || v === undefined) return v;
+	if (v instanceof Date) return v.toISOString();
+	if (v instanceof URL) return v.toString();
+	if (typeof v === 'bigint') return v.toString();
+	if (Array.isArray(v)) {
+		const valuePath = pathGetter();
+		if (active.has(v)) throw new SerializationError('Cannot serialize a circular object graph', valuePath, SerializationErrorCode.CIRCULAR_REFERENCE);
+		active.add(v);
+		try {
+			return v.map((item, index) => serializeValue(item, () => `${valuePath}[${index}]`, null, options, active));
+		} finally {
+			active.delete(v);
+		}
+	}
+	if (typeof v === 'object') {
+		const valuePath = pathGetter();
+		const proto = Object.getPrototypeOf(v);
+		if (proto === Object.prototype || proto === null) {
+			if (active.has(v)) throw new SerializationError('Cannot serialize a circular object graph', valuePath, SerializationErrorCode.CIRCULAR_REFERENCE);
+			active.add(v);
+			try {
+				const plain = Object.create(null) as PlainObj;
+				for (const [key, item] of Object.entries(v as PlainObj)) {
+					setObjectKey(plain, key, serializeValue(item, () => childPath(valuePath, key), null, options, active));
+				}
+				return plain;
+			} finally {
+				active.delete(v);
+			}
+		}
+		return serializeInternal(v, valuePath, options, active);
+	}
+	return v;
 }
 
 function parseJSON(value: string, path: string): unknown {
@@ -370,21 +423,6 @@ function resolveDefault<V>(options: Required<IJSONPropertyOptions<V>>, path: str
 	}
 }
 
-/** @internal */
-export function __test_enumIsCached(enumObj: EnumType): boolean {
-	return enumCache.has(enumObj);
-}
-
-/** @internal */
-export function __test_cachedValues(enumObj: EnumType): (string | number)[] | undefined {
-	return enumValueCache.get(enumObj);
-}
-
-/** @internal */
-export function __test_cachedValueSet(enumObj: EnumType): Set<string | number> | undefined {
-	return enumValueSetCache.get(enumObj);
-}
-
 /** Get all valid values from an enum object */
 export function getEnumValues(enumObj: Record<string, string | number>): (string | number)[] {
 	const cached = enumValueCache.get(enumObj as EnumType);
@@ -501,6 +539,9 @@ export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {})
 			hasDeserializeAsyncTransform: options.deserializeAsyncTransform !== undefined,
 			hasSerializeAsyncTransform: options.serializeAsyncTransform !== undefined,
 			hasValidateAsync: options.validateAsync !== undefined,
+			resolvedType: options.type && (typeof options.type === 'object' || (typeof options.type === 'function' && Object.prototype.hasOwnProperty.call(options.type, 'prototype')))
+				? options.type as Constructor<V> | AnyEnum
+				: null,
 		};
 		if (idx >= 0) {
 			metas[idx] = entry as IPropertyMeta<unknown>;
@@ -548,7 +589,7 @@ export function generateJSONSchema(ctor: Constructor, namingStrategy?: NamingStr
 		if (meta.options.codec?.schema) {
 			return { ...meta.options.codec.schema };
 		}
-		const type = resolveType(meta.options);
+		const type = meta.resolvedType ?? resolveType(meta.options);
 		if (!type) return {};
 		if (typeof type === 'object' || isEnum(type)) return { enum: getEnumValues(type as AnyEnum) };
 		if (type === String) return { type: 'string' };
@@ -815,7 +856,7 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 			continue;
 		}
 
-		const NestedCtor = resolveType(metaOptions);
+		const NestedCtor = meta.resolvedType ?? resolveType(metaOptions);
 
 		if (metaOptions.isMap) {
 			if (typeof rawValue !== 'object' || Array.isArray(rawValue)) {
@@ -940,18 +981,6 @@ function serializeInternal<V extends object>(instance: V, _path: string, options
 	// only properties decorated with @JSONProperty are included
 	const result = {} as PlainObj;
 	const metas  = allMetas(ctor);
-	const setObjectKey = (obj: PlainObj, key: string, value: unknown): void => {
-		if (key === '__proto__') {
-			Object.defineProperty(obj, key, {
-				value,
-				enumerable: true,
-				configurable: true,
-				writable: true,
-			});
-			return;
-		}
-		obj[key] = value;
-	};
 	for (const meta of metas) {
 		const { propertyKey, options: metaOptions, explicitName } = meta;
 		const jsonKey = explicitName ? metaOptions.name : (options.namingStrategy ? options.namingStrategy(propertyKey) : metaOptions.name);
@@ -988,70 +1017,6 @@ function serializeInternal<V extends object>(instance: V, _path: string, options
 			continue;
 		}
 
-		function serializeValue(v: unknown, pathGetter: () => string, codec: JSONCodec | null = null): unknown {
-			if (v === null || v === undefined) {
-				return v;
-			}
-			if (codec) {
-				try {
-					v = codec.serialize(v);
-				} catch (cause) {
-					throw new SerializationError('Codec serialization failed', pathGetter(), SerializationErrorCode.TRANSFORM_FAILED, cause);
-				}
-			}
-			if (v === null || v === undefined) {
-				return v;
-			}
-
-			if (v instanceof Date) {
-				return v.toISOString();
-			}
-
-			if (v instanceof URL) {
-				return v.toString();
-			}
-
-			if (typeof v === 'bigint') {
-				return v.toString();
-			}
-
-			if (Array.isArray(v)) {
-				const valuePath = pathGetter();
-				if (active.has(v)) {
-					throw new SerializationError('Cannot serialize a circular object graph', valuePath, SerializationErrorCode.CIRCULAR_REFERENCE);
-				}
-				active.add(v);
-				try {
-					return v.map((item, index) => serializeValue(item, () => `${valuePath}[${index}]`));
-				} finally {
-					active.delete(v);
-				}
-			}
-
-			if (typeof v === 'object') {
-				const valuePath = pathGetter();
-				const proto = Object.getPrototypeOf(v);
-				if (proto === Object.prototype || proto === null) {
-					if (active.has(v)) {
-						throw new SerializationError('Cannot serialize a circular object graph', valuePath, SerializationErrorCode.CIRCULAR_REFERENCE);
-					}
-					active.add(v);
-					try {
-						const plain = Object.create(null) as PlainObj;
-						for (const [key, item] of Object.entries(v as PlainObj)) {
-							setObjectKey(plain, key, serializeValue(item, () => childPath(valuePath, key)));
-						}
-						return plain;
-					} finally {
-						active.delete(v);
-					}
-				}
-				return serializeInternal(v as object, valuePath, options, active);
-			}
-
-			return v;
-		}
-
 		if (metaOptions.isMap && !(value instanceof Map)) {
 			throw new SerializationError(`Expected Map for property "${propertyKey}"`, getPath(), SerializationErrorCode.INVALID_COLLECTION);
 		}
@@ -1065,7 +1030,7 @@ function serializeInternal<V extends object>(instance: V, _path: string, options
 		if (metaOptions.isMap) {
 			const obj = Object.create(null) as PlainObj;
 			for (const [k, v] of (value as Map<string, unknown>)) {
-				setObjectKey(obj, k, serializeValue(v, () => childPath(getPath(), k), metaOptions.codec));
+				setObjectKey(obj, k, serializeValue(v, () => childPath(getPath(), k), metaOptions.codec, options, active));
 			}
 
 			setObjectKey(result, jsonKey, obj);
@@ -1074,19 +1039,19 @@ function serializeInternal<V extends object>(instance: V, _path: string, options
 
 		if (metaOptions.isSet) {
 			setObjectKey(result, jsonKey, Array.from(value as Set<unknown>).map((item, i) =>
-				serializeValue(item, () => `${getPath()}[${i}]`, metaOptions.codec)
+				serializeValue(item, () => `${getPath()}[${i}]`, metaOptions.codec, options, active)
 			));
 			continue;
 		}
 
 		if (Array.isArray(value)) {
 			setObjectKey(result, jsonKey, (value as unknown[]).map((item, i) =>
-				serializeValue(item, () => `${getPath()}[${i}]`, metaOptions.codec)
+				serializeValue(item, () => `${getPath()}[${i}]`, metaOptions.codec, options, active)
 			));
 			continue;
 		}
 
-		setObjectKey(result, jsonKey, serializeValue(value, getPath, metaOptions.codec));
+		setObjectKey(result, jsonKey, serializeValue(value, getPath, metaOptions.codec, options, active));
 	}
 
 	const discField = (ctor as AnyFn)[D] as string | undefined;

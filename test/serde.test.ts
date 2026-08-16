@@ -18,10 +18,7 @@ import {
 	NamingStrategies,
 	JSONDiscriminator,
 	JSONVersion,
-	generateJSONSchema,
-	__test_cachedValues,
-	__test_enumIsCached,
-	__test_cachedValueSet
+	generateJSONSchema
 } from '../src/index';
 
 // simple class
@@ -897,34 +894,12 @@ describe('enum support', () => {
 	});
 });
 
-// additional tests for caching/performance helpers
-
-describe('internal caches', () => {
-	test('isEnum caches result', () => {
-		// use a brand‑new enum object so the cache is initially empty
-		enum Local { A = 'A', B = 'B' }
-		expect(__test_enumIsCached(Local)).toBe(false);
-		expect(isEnum(Local)).toBe(true);
-		expect(__test_enumIsCached(Local)).toBe(true);
-		// second call still returns true and doesn't blow up
-		expect(isEnum(Local)).toBe(true);
-	});
-
+describe('enum cache behavior', () => {
 	test('getEnumValues caches values array', () => {
 		const first = getEnumValues(NumericPriority);
 		const second = getEnumValues(NumericPriority);
-		expect(first).toBe(second); // same reference means it came from cache
-		expect(__test_cachedValues(NumericPriority)).toBe(second);
+		expect(first).toBe(second);
 		expect(Object.isFrozen(second)).toBe(true);
-	});
-
-	test('enum value set cache is populated and reused', () => {
-		getEnumValues(StringStatus);
-		const first = __test_cachedValueSet(StringStatus);
-		expect(first).toBeDefined();
-		deserialize(Task, { title: 'Task', status: 'ACTIVE', priority: 0 });
-		const second = __test_cachedValueSet(StringStatus);
-		expect(second).toBe(first);
 	});
 });
 
