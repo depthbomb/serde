@@ -474,6 +474,25 @@ describe('polymorphic deserialization', () => {
 // miscellaneous behaviours
 // undecorated objects now throw during serialization
 describe('miscellaneous behaviours', () => {
+	test('JSONProperty supports standard field decorator initializers', () => {
+		class StandardDecorated {
+			value = 'standard';
+		}
+		Serializable()(StandardDecorated);
+		const initializers: Array<(this: StandardDecorated) => void> = [];
+		JSONProperty()(undefined, {
+			kind: 'field',
+			name: 'value',
+			static: false,
+			private: false,
+			addInitializer(initializer: (this: StandardDecorated) => void) {
+				initializers.push(initializer);
+			},
+		});
+		const value = new StandardDecorated();
+		for (const initializer of initializers) initializer.call(value);
+		expect(serialize(value)).toEqual({ value: 'standard' });
+	});
 	test('unknown properties can be collected safely', () => {
 		@Serializable()
 		class Extensible {

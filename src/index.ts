@@ -455,13 +455,13 @@ export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {})
 		throw new Error('@JSONProperty codec and type options are mutually exclusive.');
 	}
 
-	return (target, propertyKey) => {
-		const key = typeof propertyKey === 'string' ? propertyKey : (propertyKey as any)?.name;
+	const registered = new WeakSet<Constructor>();
+	const register = (ctor: AnyFn, key: string): void => {
+		if (registered.has(ctor)) return;
 		if (typeof key !== 'string') {
 			throw new Error('@JSONProperty only supports string keys.');
 		}
 
-		const ctor = target.constructor as AnyFn;
 		const metas = ownMetas(ctor);
 		const full = {
 			name: options.name ?? key,
@@ -493,6 +493,26 @@ export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {})
 			metas.push(entry as IPropertyMeta<unknown>);
 		}
 		metaVersions.set(ctor, (metaVersions.get(ctor) ?? 0) + 1);
+		registered.add(ctor);
+	};
+
+	return (target, propertyKey) => {
+		if (propertyKey && typeof propertyKey === 'object' && typeof propertyKey.addInitializer === 'function') {
+			if (propertyKey.private || propertyKey.static || typeof propertyKey.name !== 'string') {
+				throw new Error('@JSONProperty only supports public instance string keys.');
+			}
+			const key = propertyKey.name;
+			propertyKey.addInitializer(function (this: object) {
+				register(this.constructor as AnyFn, key);
+			});
+			return;
+		}
+
+		const key = typeof propertyKey === 'string' ? propertyKey : (propertyKey as any)?.name;
+		if (!target || typeof key !== 'string') {
+			throw new Error('@JSONProperty only supports string keys.');
+		}
+		register(target.constructor as AnyFn, key);
 	};
 }
 
