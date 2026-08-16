@@ -8,6 +8,9 @@ interface IPropertyMeta<V = unknown> {
 	propertyKey: string;
 	options: Required<IJSONPropertyOptions<V>>;
 	explicitName: boolean;
+	hasDeserializeAsyncTransform: boolean;
+	hasSerializeAsyncTransform: boolean;
+	hasValidateAsync: boolean;
 }
 
 /** Any newable constructor */
@@ -116,11 +119,15 @@ export interface IJSONPropertyOptions<T = unknown> {
 	 * @example (raw) => new Date(raw as string)
 	 */
 	deserializeTransform?: (raw: unknown) => T;
+	/** Async transform applied by deserializeAsync after synchronous conversion. */
+	deserializeAsyncTransform?: (value: T) => Promise<T>;
 	/**
 	 * Transform applied before serialization: typed value → raw JSON value.
 	 * @example (d: Date) => d.toISOString()
 	 */
 	serializeTransform?: (value: T) => unknown;
+	/** Async transform applied by serializeAsync to produce a raw JSON value. */
+	serializeAsyncTransform?: (value: T) => Promise<unknown>;
 	/**
 	 * Default value used when the key is absent during deserialization.
 	 * Use a factory function for mutable defaults (arrays, objects).
@@ -134,6 +141,8 @@ export interface IJSONPropertyOptions<T = unknown> {
 	 * @example (v: number) => v > 0 || "Must be positive"
 	 */
 	validate?: (value: T) => boolean | string | void;
+	/** Async validator run by deserializeAsync. */
+	validateAsync?: (value: T) => Promise<boolean | string | void>;
 	groups?: string[];
 	sensitive?: boolean;
 }
@@ -424,7 +433,7 @@ export function Serializable(): ClassDecorator {
 
 /** Returns `true` if the class was decorated with \@Serializable */
 export function isSerializable(ctor: Constructor): boolean {
-	return (ctor as AnyFn)[S] === true;
+	return typeof ctor === 'function' && (ctor as AnyFn)[S] === true;
 }
 
 /**
@@ -474,9 +483,12 @@ export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {})
 			optional: options.optional ?? true,
 			nullable: options.nullable ?? 'ignore',
 			deserializeTransform: options.deserializeTransform ?? ((v) => v as V),
+			deserializeAsyncTransform: options.deserializeAsyncTransform ?? (async (v) => v),
 			serializeTransform: options.serializeTransform ?? ((v) => v),
+			serializeAsyncTransform: options.serializeAsyncTransform ?? (async (v) => v),
 			defaultValue: (options.defaultValue ?? undefined) as V,
 			validate: options.validate ?? (() => undefined),
+			validateAsync: options.validateAsync ?? (async () => undefined),
 			groups: options.groups ?? [],
 			sensitive: options.sensitive ?? false,
 		} as Required<IJSONPropertyOptions<V>>;
@@ -485,7 +497,10 @@ export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {})
 		const entry: IPropertyMeta<V> = {
 			propertyKey: key,
 			options: full,
-			explicitName: options.name !== undefined
+			explicitName: options.name !== undefined,
+			hasDeserializeAsyncTransform: options.deserializeAsyncTransform !== undefined,
+			hasSerializeAsyncTransform: options.serializeAsyncTransform !== undefined,
+			hasValidateAsync: options.validateAsync !== undefined,
 		};
 		if (idx >= 0) {
 			metas[idx] = entry as IPropertyMeta<unknown>;
@@ -1095,8 +1110,123 @@ function serializeInternal<V extends object>(instance: V, _path: string, options
 	}
 }
 
+/** Deserialize and then run async property transforms and validators recursively. */
+export async function deserializeAsync<V>(ctor: Constructor<V>, data: PlainObj | string, _path = '$', options: IDeserializeOptions = {}): Promise<V> {
+	const instance = deserialize(ctor, data, _path, options);
+
+	const applyAsync = async (value: object, path: string): Promise<void> => {
+		for (const meta of allMetas(value.constructor as Constructor)) {
+			const jsonKey = meta.explicitName ? meta.options.name : (options.namingStrategy ? options.namingStrategy(meta.propertyKey) : meta.options.name);
+			const valuePath = childPath(path, jsonKey);
+			let current = (value as PlainObj)[meta.propertyKey];
+			const recurse = async (item: unknown, itemPath: string): Promise<void> => {
+				if (item && typeof item === 'object' && isSerializable(item.constructor as Constructor)) {
+					await applyAsync(item, itemPath);
+				}
+			};
+			if (Array.isArray(current)) {
+				await Promise.all(current.map((item, index) => recurse(item, `${valuePath}[${index}]`)));
+			} else if (current instanceof Set) {
+				await Promise.all(Array.from(current).map((item, index) => recurse(item, `${valuePath}[${index}]`)));
+			} else if (current instanceof Map) {
+				await Promise.all(Array.from(current, ([key, item]) => recurse(item, childPath(valuePath, String(key)))));
+			} else {
+				await recurse(current, valuePath);
+			}
+
+			if (meta.hasDeserializeAsyncTransform) {
+				try {
+					current = await meta.options.deserializeAsyncTransform(current as never);
+					(value as PlainObj)[meta.propertyKey] = current;
+				} catch (cause) {
+					throw new SerializationError(`Async deserialization transform failed for property "${jsonKey}"`, valuePath, SerializationErrorCode.TRANSFORM_FAILED, cause);
+				}
+			}
+			if (meta.hasValidateAsync) {
+				let result: boolean | string | void;
+				try {
+					result = await meta.options.validateAsync(current as never);
+				} catch (cause) {
+					throw new SerializationError(`Async validation failed for property "${jsonKey}"`, valuePath, SerializationErrorCode.VALIDATION_FAILED, cause);
+				}
+				if (result === false || typeof result === 'string') {
+					throw new SerializationError(typeof result === 'string' ? result : `Async validation failed for property "${jsonKey}"`, valuePath, SerializationErrorCode.VALIDATION_FAILED);
+				}
+			}
+		}
+	};
+
+	await applyAsync(instance as object, _path);
+	return instance;
+}
+
+export async function deserializeArrayAsync<V>(ctor: Constructor<V>, data: PlainObj[] | string, path = '$', options: IDeserializeOptions = {}): Promise<V[]> {
+	const raw = typeof data === 'string' ? (parseJSON(data, path) as PlainObj[]) : data;
+	if (!Array.isArray(raw)) {
+		throw new SerializationError('Expected an array at root', path, SerializationErrorCode.NOT_AN_ARRAY);
+	}
+	return Promise.all(raw.map((item, index) => deserializeAsync(ctor, item, `${path}[${index}]`, options)));
+}
+
 export function serialize<V extends object>(instance: V, _path = '$', options: ISerializeOptions = {}): PlainObj {
 	return serializeInternal(instance, _path, options, new WeakSet<object>());
+}
+
+/** Serialize while applying async property transforms recursively. */
+export async function serializeAsync<V extends object>(instance: V, _path = '$', options: ISerializeOptions = {}): Promise<PlainObj> {
+	const result = serialize(instance, _path, options);
+	const active = new WeakSet<object>();
+
+	const normalize = async (value: unknown, path: string): Promise<unknown> => {
+		if (value === null || value === undefined || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+		if (typeof value === 'bigint') return value.toString();
+		if (value instanceof Date) return value.toISOString();
+		if (value instanceof URL) return value.toString();
+		if (typeof value !== 'object') return value;
+		if (active.has(value)) throw new SerializationError('Cannot serialize a circular object graph', path, SerializationErrorCode.CIRCULAR_REFERENCE);
+		active.add(value);
+		try {
+			if (isSerializable(value.constructor as Constructor)) return await serializeAsync(value, path, options);
+			if (Array.isArray(value) || value instanceof Set) {
+				return await Promise.all(Array.from(value).map((item, index) => normalize(item, `${path}[${index}]`)));
+			}
+			if (value instanceof Map) {
+				const object = Object.create(null) as PlainObj;
+				for (const [key, item] of value) object[String(key)] = await normalize(item, childPath(path, String(key)));
+				return object;
+			}
+			const object = Object.create(null) as PlainObj;
+			for (const [key, item] of Object.entries(value)) object[key] = await normalize(item, childPath(path, key));
+			return object;
+		} finally {
+			active.delete(value);
+		}
+	};
+
+	for (const meta of allMetas(instance.constructor as Constructor)) {
+		const jsonKey = meta.explicitName ? meta.options.name : (options.namingStrategy ? options.namingStrategy(meta.propertyKey) : meta.options.name);
+		if (!Object.prototype.hasOwnProperty.call(result, jsonKey)) continue;
+		if (!meta.hasSerializeAsyncTransform) {
+			const typed = (instance as PlainObj)[meta.propertyKey];
+			const hasNestedSerializable = (item: unknown): boolean => Boolean(item && typeof item === 'object' && isSerializable((item as object).constructor as Constructor));
+			if (hasNestedSerializable(typed)
+				|| (Array.isArray(typed) && typed.some(hasNestedSerializable))
+				|| (typed instanceof Set && Array.from(typed).some(hasNestedSerializable))
+				|| (typed instanceof Map && Array.from(typed.values()).some(hasNestedSerializable))) {
+				result[jsonKey] = await normalize(typed, childPath(_path, jsonKey));
+			}
+			continue;
+		}
+		try {
+			const transformed = await meta.options.serializeAsyncTransform((instance as PlainObj)[meta.propertyKey] as never);
+			result[jsonKey] = await normalize(transformed, childPath(_path, jsonKey));
+		} catch (cause) {
+			if (cause instanceof SerializationError) throw cause;
+			throw new SerializationError(`Async serialization transform failed for property "${jsonKey}"`, childPath(_path, jsonKey), SerializationErrorCode.TRANSFORM_FAILED, cause);
+		}
+	}
+
+	return result;
 }
 
 /**
@@ -1108,4 +1238,11 @@ export function serializeArray<V extends object>(instances: V[], path = '$', opt
 	}
 
 	return instances.map((inst, i) => serialize(inst, `${path}[${i}]`, options));
+}
+
+export async function serializeArrayAsync<V extends object>(instances: V[], path = '$', options: ISerializeOptions = {}): Promise<PlainObj[]> {
+	if (!Array.isArray(instances)) {
+		throw new SerializationError('Expected an array', path, SerializationErrorCode.NOT_AN_ARRAY);
+	}
+	return Promise.all(instances.map((instance, index) => serializeAsync(instance, `${path}[${index}]`, options)));
 }

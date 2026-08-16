@@ -1,4 +1,4 @@
-import { serialize, deserialize, getJSONProperties } from './';
+import { serialize, deserialize, serializeAsync, deserializeAsync, getJSONProperties } from './';
 import type { Constructor, IDeserializeOptions, ISerializeOptions } from './';
 import { SerializationError, SerializationErrorCode } from './errors';
 
@@ -49,6 +49,14 @@ export function clone<V extends object>(ctor: Constructor<V>, instance: V): V {
 export interface IPatchOptions extends IDeserializeOptions, ISerializeOptions {
 	/** Reject patch keys that are neither property names nor serialized JSON names. */
 	strictPatch?: boolean;
+}
+
+export async function toJSONAsync<V extends object>(instance: V, space?: number): Promise<string> {
+	return JSON.stringify(await serializeAsync(instance), null, space);
+}
+
+export async function fromJSONAsync<V>(ctor: Constructor<V>, json: string): Promise<V> {
+	return deserializeAsync(ctor, json);
 }
 
 export function patch<V extends object>(ctor: Constructor<V>, instance: V, partial: Record<string, unknown>, options: IPatchOptions = {}): V {

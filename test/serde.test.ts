@@ -1,11 +1,13 @@
 import { test, expect, describe } from 'vitest';
-import { clone, patch, toJSON, fromJSON } from '../src/utilities';
+import { clone, patch, toJSON, fromJSON, toJSONAsync, fromJSONAsync } from '../src/utilities';
 import { SerializationError, SerializationErrorCode } from '../src/errors';
 import {
 	type Constructor,
 	isEnum,
 	serialize,
 	deserialize,
+	deserializeAsync,
+	serializeAsync,
 	JSONSubType,
 	JSONProperty,
 	Serializable,
@@ -474,6 +476,24 @@ describe('polymorphic deserialization', () => {
 // miscellaneous behaviours
 // undecorated objects now throw during serialization
 describe('miscellaneous behaviours', () => {
+	test('async transforms and validators run through async APIs', async () => {
+		@Serializable()
+		class AsyncValue {
+			@JSONProperty({
+				deserializeAsyncTransform: async (value: string) => value.toUpperCase(),
+				serializeAsyncTransform: async (value: string) => value.toLowerCase(),
+				validateAsync: async (value: string) => value.length >= 3 || 'too short',
+			})
+			value!: string;
+		}
+
+		const value = await deserializeAsync(AsyncValue, { value: 'Hello' });
+		expect(value.value).toBe('HELLO');
+		expect(await serializeAsync(value)).toEqual({ value: 'hello' });
+		expect(await toJSONAsync(value)).toBe('{"value":"hello"}');
+		expect((await fromJSONAsync(AsyncValue, '{"value":"world"}')).value).toBe('WORLD');
+		await expect(deserializeAsync(AsyncValue, { value: 'x' })).rejects.toMatchObject({ code: SerializationErrorCode.VALIDATION_FAILED });
+	});
 	test('JSONProperty supports standard field decorator initializers', () => {
 		class StandardDecorated {
 			value = 'standard';
