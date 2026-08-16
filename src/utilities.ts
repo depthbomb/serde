@@ -33,7 +33,7 @@ export function fromJSON<V>(ctor: Constructor<V>, json: string): V {
  * const copy = clone(User, user);
  */
 export function clone<V extends object>(ctor: Constructor<V>, instance: V): V {
-	return deserialize(ctor, serialize(instance));
+	return deserialize(ctor, serialize(instance, '$', { includeSensitive: true }));
 }
 
 /**
@@ -52,7 +52,7 @@ export interface IPatchOptions extends IDeserializeOptions, ISerializeOptions {
 }
 
 export function patch<V extends object>(ctor: Constructor<V>, instance: V, partial: Record<string, unknown>, options: IPatchOptions = {}): V {
-	const next = { ...serialize(instance, '$', options), ...partial } as Record<string, unknown>;
+	const next = { ...serialize(instance, '$', { ...options, includeSensitive: true }), ...partial } as Record<string, unknown>;
 	const mappings = getJSONProperties(ctor, options.namingStrategy);
 	const allowed = new Set(mappings.flatMap(({ propertyKey, jsonKey }) => [propertyKey, jsonKey]));
 

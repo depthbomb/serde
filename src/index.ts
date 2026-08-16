@@ -55,6 +55,14 @@ export interface ISerializeOptions {
 	 * unless explicitly overridden per-property via `@JSONProperty({ name })`.
 	 */
 	namingStrategy?: NamingStrategy;
+	groups?: string[];
+	includeSensitive?: boolean;
+}
+
+export interface JSONCodec<T = unknown, Wire = unknown> {
+	serialize(value: T): Wire;
+	deserialize(value: Wire): T;
+	schema?: Readonly<Record<string, unknown>>;
 }
 
 export interface IJSONPropertyOptions<T = unknown> {
@@ -63,6 +71,7 @@ export interface IJSONPropertyOptions<T = unknown> {
 	 * @example { name: "first_name" }
 	 */
 	name?: string;
+	aliases?: string[];
 	/**
 	 * Explicit type constructor for nested objects, or an enum type.
 	 * Use a thunk `() => MyClass` or `() => MyEnum` to support forward / circular references.
@@ -70,6 +79,7 @@ export interface IJSONPropertyOptions<T = unknown> {
 	 * @example { type: () => Status } // enum
 	 */
 	type?: TypeFn<T> | Constructor<T> | EnumType;
+	codec?: JSONCodec<T>;
 	/**
 	 * Treat the property as an array of `type`.
 	 * @example { type: () => Tag, isArray: true }
@@ -122,6 +132,8 @@ export interface IJSONPropertyOptions<T = unknown> {
 	 * @example (v: number) => v > 0 || "Must be positive"
 	 */
 	validate?: (value: T) => boolean | string | void;
+	groups?: string[];
+	sensitive?: boolean;
 }
 
 const S = Symbol('serde.serializable');
@@ -436,6 +448,9 @@ export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {})
 	if (collectionKinds > 1) {
 		throw new Error('@JSONProperty only supports one of isArray, isMap, or isSet.');
 	}
+	if (options.codec && options.type) {
+		throw new Error('@JSONProperty codec and type options are mutually exclusive.');
+	}
 
 	return (target, propertyKey) => {
 		const key = typeof propertyKey === 'string' ? propertyKey : (propertyKey as any)?.name;
@@ -447,7 +462,9 @@ export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {})
 		const metas = ownMetas(ctor);
 		const full = {
 			name: options.name ?? key,
+			aliases: options.aliases ?? [],
 			type: (options.type ?? null) as Required<IJSONPropertyOptions<V>>['type'],
+			codec: (options.codec ?? null) as Required<IJSONPropertyOptions<V>>['codec'],
 			isArray: options.isArray ?? false,
 			isMap: options.isMap ?? false,
 			isSet: options.isSet ?? false,
@@ -457,6 +474,8 @@ export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {})
 			serializeTransform: options.serializeTransform ?? ((v) => v),
 			defaultValue: (options.defaultValue ?? undefined) as V,
 			validate: options.validate ?? (() => undefined),
+			groups: options.groups ?? [],
+			sensitive: options.sensitive ?? false,
 		} as Required<IJSONPropertyOptions<V>>;
 
 		const idx = metas.findIndex((m) => m.propertyKey === key);
@@ -480,6 +499,66 @@ export function getJSONProperties(ctor: Constructor, namingStrategy?: NamingStra
 		propertyKey,
 		jsonKey: explicitName ? options.name : (namingStrategy ? namingStrategy(propertyKey) : options.name),
 	}));
+}
+
+/** Generate a JSON Schema (draft 2020-12) from serializer metadata. */
+export function generateJSONSchema(ctor: Constructor, namingStrategy?: NamingStrategy): Record<string, unknown> {
+	const definitions: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+	const building = new Set<Constructor>();
+
+	const valueSchema = (meta: IPropertyMeta): Record<string, unknown> => {
+		if (meta.options.codec?.schema) {
+			return { ...meta.options.codec.schema };
+		}
+		const type = resolveType(meta.options);
+		if (!type) return {};
+		if (typeof type === 'object' || isEnum(type)) return { enum: getEnumValues(type as AnyEnum) };
+		if (type === String) return { type: 'string' };
+		if (type === Number) return { type: 'number' };
+		if (type === Boolean) return { type: 'boolean' };
+		if ((type as unknown) === BigInt) return { type: 'string', pattern: '^-?\\d+$' };
+		if (type === Date) return { type: 'string', format: 'date-time' };
+		if (type === URL) return { type: 'string', format: 'uri' };
+		buildDefinition(type as Constructor);
+		return { $ref: `#/$defs/${(type as Constructor).name || 'Anonymous'}` };
+	};
+
+	const buildDefinition = (target: Constructor): Record<string, unknown> => {
+		const name = target.name || 'Anonymous';
+		if (definitions[name]) return definitions[name] as Record<string, unknown>;
+		if (building.has(target)) return { $ref: `#/$defs/${name}` };
+		building.add(target);
+		const properties: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+		const required: string[] = [];
+		for (const meta of allMetas(target)) {
+			const jsonKey = meta.explicitName ? meta.options.name : (namingStrategy ? namingStrategy(meta.propertyKey) : meta.options.name);
+			let schema = valueSchema(meta);
+			if (meta.options.isArray || meta.options.isSet) {
+				schema = { type: 'array', items: schema, ...(meta.options.isSet ? { uniqueItems: true } : {}) };
+			} else if (meta.options.isMap) {
+				schema = { type: 'object', additionalProperties: schema };
+			}
+			if (meta.options.nullable === 'null') schema = { anyOf: [schema, { type: 'null' }] };
+			if (meta.options.aliases.length) schema['x-aliases'] = [...meta.options.aliases];
+			if (meta.options.groups.length) schema['x-groups'] = [...meta.options.groups];
+			if (meta.options.sensitive) schema.writeOnly = true;
+			properties[jsonKey] = schema;
+			if (!meta.options.optional && meta.options.defaultValue === undefined) required.push(jsonKey);
+		}
+		const schema = { type: 'object', properties, additionalProperties: false, ...(required.length ? { required } : {}) };
+		definitions[name] = schema;
+		building.delete(target);
+		return schema;
+	};
+
+	const root = buildDefinition(ctor);
+	const rootName = ctor.name || 'Anonymous';
+	delete definitions[rootName];
+	return {
+		$schema: 'https://json-schema.org/draft/2020-12/schema',
+		...root,
+		...(Object.keys(definitions).length ? { $defs: definitions } : {}),
+	};
 }
 
 /**
@@ -557,9 +636,16 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 		}
 	}
 
-	function convertValue(val: unknown, ctorOrEnum: Constructor | Record<string, string | number> | null, path: string | (() => string)): unknown {
+	function convertValue(val: unknown, ctorOrEnum: Constructor | Record<string, string | number> | null, path: string | (() => string), codec: JSONCodec | null): unknown {
 		if (val === null || val === undefined) {
 			return val;
+		}
+		if (codec) {
+			try {
+				return codec.deserialize(val);
+			} catch (cause) {
+				throw new SerializationError('Codec deserialization failed', typeof path === 'function' ? path() : path, SerializationErrorCode.TRANSFORM_FAILED, cause);
+			}
 		}
 
 		if (!ctorOrEnum) {
@@ -603,12 +689,13 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 		const { propertyKey, options: metaOptions, explicitName } = meta;
 		const jsonKey = explicitName ? metaOptions.name : (options.namingStrategy ? options.namingStrategy(propertyKey) : metaOptions.name);
 		const getPath = () => childPath(_path, jsonKey);
-		const hasKey = Object.prototype.hasOwnProperty.call(raw, jsonKey);
+		const inputKey = [jsonKey, ...metaOptions.aliases].find(key => Object.prototype.hasOwnProperty.call(raw, key));
+		const hasKey = inputKey !== undefined;
 
-		let rawValue: unknown = hasKey ? raw[jsonKey] : undefined;
+		let rawValue: unknown = hasKey ? raw[inputKey] : undefined;
 
 		if (hasKey) {
-			seenKeys.add(jsonKey);
+			seenKeys.add(inputKey as string);
 		}
 
 		if (rawValue === undefined) {
@@ -654,7 +741,7 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 			const map = new Map<string, unknown>();
 			for (const [k, v] of Object.entries(rawValue as PlainObj)) {
 				// convertValue handles null/undefined, enum validation, and recursion
-				map.set(k, convertValue(v, NestedCtor, () => childPath(getPath(), k)));
+				map.set(k, convertValue(v, NestedCtor, () => childPath(getPath(), k), metaOptions.codec));
 			}
 
 			(instance as PlainObj)[propertyKey] = map;
@@ -668,7 +755,7 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 
 			const set = new Set<unknown>();
 			for (let i = 0; i < rawValue.length; i++) {
-				set.add(convertValue(rawValue[i], NestedCtor, () => `${getPath()}[${i}]`));
+				set.add(convertValue(rawValue[i], NestedCtor, () => `${getPath()}[${i}]`, metaOptions.codec));
 			}
 
 			(instance as PlainObj)[propertyKey] = set;
@@ -682,11 +769,11 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 
 			rawValue = (rawValue as unknown[]).map((item, i) =>
 				// convertValue handles null/undefined, enum validation, and recursion
-				convertValue(item, NestedCtor, () => `${getPath()}[${i}]`),
+				convertValue(item, NestedCtor, () => `${getPath()}[${i}]`, metaOptions.codec),
 			);
 		} else {
 			// convertValue handles null/undefined, enum validation, and recursion
-			rawValue = convertValue(rawValue, NestedCtor, getPath);
+			rawValue = convertValue(rawValue, NestedCtor, getPath, metaOptions.codec);
 		}
 
 		try {
@@ -774,6 +861,12 @@ function serializeInternal<V extends object>(instance: V, _path: string, options
 		const { propertyKey, options: metaOptions, explicitName } = meta;
 		const jsonKey = explicitName ? metaOptions.name : (options.namingStrategy ? options.namingStrategy(propertyKey) : metaOptions.name);
 		const getPath = () => childPath(_path, jsonKey);
+		if (metaOptions.sensitive && !options.includeSensitive) {
+			continue;
+		}
+		if (options.groups?.length && metaOptions.groups.length && !metaOptions.groups.some(group => options.groups?.includes(group))) {
+			continue;
+		}
 
 		let value: unknown;
 		try {
@@ -800,7 +893,17 @@ function serializeInternal<V extends object>(instance: V, _path: string, options
 			continue;
 		}
 
-		function serializeValue(v: unknown, pathGetter: () => string): unknown {
+		function serializeValue(v: unknown, pathGetter: () => string, codec: JSONCodec | null = null): unknown {
+			if (v === null || v === undefined) {
+				return v;
+			}
+			if (codec) {
+				try {
+					v = codec.serialize(v);
+				} catch (cause) {
+					throw new SerializationError('Codec serialization failed', pathGetter(), SerializationErrorCode.TRANSFORM_FAILED, cause);
+				}
+			}
 			if (v === null || v === undefined) {
 				return v;
 			}
@@ -867,7 +970,7 @@ function serializeInternal<V extends object>(instance: V, _path: string, options
 		if (metaOptions.isMap) {
 			const obj = Object.create(null) as PlainObj;
 			for (const [k, v] of (value as Map<string, unknown>)) {
-				setObjectKey(obj, k, serializeValue(v, () => childPath(getPath(), k)));
+				setObjectKey(obj, k, serializeValue(v, () => childPath(getPath(), k), metaOptions.codec));
 			}
 
 			setObjectKey(result, jsonKey, obj);
@@ -876,19 +979,19 @@ function serializeInternal<V extends object>(instance: V, _path: string, options
 
 		if (metaOptions.isSet) {
 			setObjectKey(result, jsonKey, Array.from(value as Set<unknown>).map((item, i) =>
-				serializeValue(item, () => `${getPath()}[${i}]`)
+				serializeValue(item, () => `${getPath()}[${i}]`, metaOptions.codec)
 			));
 			continue;
 		}
 
 		if (Array.isArray(value)) {
 			setObjectKey(result, jsonKey, (value as unknown[]).map((item, i) =>
-				serializeValue(item, () => `${getPath()}[${i}]`)
+				serializeValue(item, () => `${getPath()}[${i}]`, metaOptions.codec)
 			));
 			continue;
 		}
 
-		setObjectKey(result, jsonKey, serializeValue(value, getPath));
+		setObjectKey(result, jsonKey, serializeValue(value, getPath, metaOptions.codec));
 	}
 
 	const discField = (ctor as AnyFn)[D] as string | undefined;

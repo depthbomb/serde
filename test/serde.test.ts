@@ -15,6 +15,7 @@ import {
 	deserializeArray,
 	NamingStrategies,
 	JSONDiscriminator,
+	generateJSONSchema,
 	__test_cachedValues,
 	__test_enumIsCached,
 	__test_cachedValueSet
@@ -472,6 +473,75 @@ describe('polymorphic deserialization', () => {
 // miscellaneous behaviours
 // undecorated objects now throw during serialization
 describe('miscellaneous behaviours', () => {
+	test('aliases are accepted in strict mode but serialization uses the canonical name', () => {
+		@Serializable()
+		class Aliased {
+			@JSONProperty({ name: 'displayName', aliases: ['display_name', 'name'], optional: false })
+			displayName!: string;
+		}
+
+		const value = deserialize(Aliased, { display_name: 'Ada' }, '$', { strict: true });
+		expect(value.displayName).toBe('Ada');
+		expect(serialize(value)).toEqual({ displayName: 'Ada' });
+	});
+
+	test('custom codecs support scalar and collection values', () => {
+		const epochCodec = {
+			serialize: (value: Date) => value.getTime(),
+			deserialize: (value: unknown) => new Date(Number(value)),
+			schema: { type: 'integer' },
+		};
+		@Serializable()
+		class CodecValues {
+			@JSONProperty({ codec: epochCodec })
+			created!: Date;
+			@JSONProperty({ codec: epochCodec, isArray: true })
+			history!: Date[];
+		}
+
+		const date = new Date('2026-01-01T00:00:00.000Z');
+		const original = Object.assign(new CodecValues(), { created: date, history: [date] });
+		const plain = serialize(original);
+		expect(plain).toEqual({ created: date.getTime(), history: [date.getTime()] });
+		expect(deserialize(CodecValues, plain).history[0]).toBeInstanceOf(Date);
+	});
+
+	test('groups project fields and sensitive fields require opt-in', () => {
+		@Serializable()
+		class Projection {
+			@JSONProperty()
+			id!: number;
+			@JSONProperty({ groups: ['detail'] })
+			detail!: string;
+			@JSONProperty({ sensitive: true })
+			secret!: string;
+		}
+
+		const value = Object.assign(new Projection(), { id: 1, detail: 'full', secret: 'token' });
+		expect(serialize(value, '$', { groups: ['summary'] })).toEqual({ id: 1 });
+		expect(serialize(value, '$', { groups: ['detail'] })).toEqual({ id: 1, detail: 'full' });
+		expect(serialize(value, '$', { includeSensitive: true })).toEqual({ id: 1, detail: 'full', secret: 'token' });
+		expect(clone(Projection, value).secret).toBe('token');
+	});
+
+	test('JSON Schema reflects property metadata and nested definitions', () => {
+		@Serializable()
+		class SchemaChild {
+			@JSONProperty({ type: String, optional: false })
+			value!: string;
+		}
+		@Serializable()
+		class SchemaRoot {
+			@JSONProperty({ type: () => SchemaChild, aliases: ['old_child'] })
+			child!: SchemaChild;
+		}
+
+		const schema = generateJSONSchema(SchemaRoot) as any;
+		expect(schema.$schema).toContain('2020-12');
+		expect(schema.properties.child.$ref).toBe('#/$defs/SchemaChild');
+		expect(schema.properties.child['x-aliases']).toEqual(['old_child']);
+		expect(schema.$defs.SchemaChild.required).toEqual(['value']);
+	});
 	test('serializing plain object throws', () => {
 		expect(() => serialize({ foo: 1 } as any)).toThrow(SerializationError);
 	});
