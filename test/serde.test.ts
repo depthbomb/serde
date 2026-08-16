@@ -2,6 +2,7 @@ import { test, expect, describe } from 'vitest';
 import { clone, patch, toJSON, fromJSON } from '../src/utilities';
 import { SerializationError, SerializationErrorCode } from '../src/errors';
 import {
+	type Constructor,
 	isEnum,
 	serialize,
 	deserialize,
@@ -475,6 +476,62 @@ describe('miscellaneous behaviours', () => {
 		const updated = patch(User, u, { firstName: 'Eve' });
 		expect(updated.firstName).toBe('Eve');
 		expect(updated.age).toBe(25);
+	});
+
+	test('serializeTransform may return a plain JSON object', () => {
+		@Serializable()
+		class Wrapped {
+			@JSONProperty({ serializeTransform: (value: string) => ({ value }) })
+			value!: string;
+		}
+
+		const wrapped = Object.assign(new Wrapped(), { value: 'ok' });
+		expect(serialize(wrapped)).toEqual({ value: { value: 'ok' } });
+	});
+
+	test('declared collection shapes are enforced during serialization', () => {
+		@Serializable()
+		class InvalidCollections {
+			@JSONProperty({ isMap: true })
+			map!: Map<string, unknown>;
+		}
+
+		const invalid = Object.assign(new InvalidCollections(), { map: { key: 'value' } });
+		expect(() => serialize(invalid)).toThrow(SerializationError);
+	});
+
+	test('BigInt round-trips through its JSON string representation', () => {
+		@Serializable()
+		class BigIntValue {
+			@JSONProperty({ type: BigInt as unknown as Constructor<bigint> })
+			value!: bigint;
+		}
+
+		const original = Object.assign(new BigIntValue(), { value: 9007199254740993n });
+		const plain = serialize(original);
+		expect(plain).toEqual({ value: '9007199254740993' });
+		expect(deserialize(BigIntValue, plain).value).toBe(9007199254740993n);
+	});
+
+	test('circular graphs throw a structured error', () => {
+		@Serializable()
+		class Circular {
+			@JSONProperty({ type: () => Circular })
+			child!: Circular;
+		}
+
+		const circular = new Circular();
+		circular.child = circular;
+		try {
+			serialize(circular);
+			expect.fail('should throw');
+		} catch (error) {
+			expect(error).toMatchObject({ code: SerializationErrorCode.CIRCULAR_REFERENCE, path: '$.child' });
+		}
+	});
+
+	test('collection metadata options are mutually exclusive', () => {
+		expect(() => JSONProperty({ isArray: true, isSet: true })).toThrow(/only supports one/);
 	});
 });
 

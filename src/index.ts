@@ -399,6 +399,11 @@ export function isSerializable(ctor: Constructor): boolean {
  * createdAt!: Date;
  */
 export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {}): (target: any, propertyKey?: any) => void {
+	const collectionKinds = [options.isArray, options.isMap, options.isSet].filter(Boolean).length;
+	if (collectionKinds > 1) {
+		throw new Error('@JSONProperty only supports one of isArray, isMap, or isSet.');
+	}
+
 	return (target, propertyKey) => {
 		const key = typeof propertyKey === 'string' ? propertyKey : (propertyKey as any)?.name;
 		if (typeof key !== 'string') {
@@ -656,7 +661,7 @@ export function deserializeArray<V>(ctor: Constructor<V>, data: PlainObj[] | str
  * @example
  * const plain = serialize(user); // { first_name: "Ada", age: 36 }
  */
-export function serialize<V extends object>(instance: V, _path = '$', options: ISerializeOptions = {}): PlainObj {
+function serializeInternal<V extends object>(instance: V, _path: string, options: ISerializeOptions, active: WeakSet<object>): PlainObj {
 	if (instance === null || instance === undefined) {
 		throw new SerializationError('Cannot serialize null/undefined', _path, SerializationErrorCode.NULL_INPUT);
 	}
@@ -665,7 +670,12 @@ export function serialize<V extends object>(instance: V, _path = '$', options: I
 	if (!isSerializable(ctor)) {
 		throw new SerializationError(`Cannot serialize instance of unmarked class "${ctor.name || 'Object'}"`, _path, SerializationErrorCode.UNMARKED_CLASS);
 	}
+	if (active.has(instance)) {
+		throw new SerializationError('Cannot serialize a circular object graph', _path, SerializationErrorCode.CIRCULAR_REFERENCE);
+	}
+	active.add(instance);
 
+	try {
 	// only properties decorated with @JSONProperty are included
 	const result = {} as PlainObj;
 	const metas  = allMetas(ctor);
@@ -715,14 +725,58 @@ export function serialize<V extends object>(instance: V, _path = '$', options: I
 				return v.toString();
 			}
 
+			if (typeof v === 'bigint') {
+				return v.toString();
+			}
+
+			if (Array.isArray(v)) {
+				const valuePath = pathGetter();
+				if (active.has(v)) {
+					throw new SerializationError('Cannot serialize a circular object graph', valuePath, SerializationErrorCode.CIRCULAR_REFERENCE);
+				}
+				active.add(v);
+				try {
+					return v.map((item, index) => serializeValue(item, () => `${valuePath}[${index}]`));
+				} finally {
+					active.delete(v);
+				}
+			}
+
 			if (typeof v === 'object') {
-				return serialize(v as object, pathGetter(), options);
+				const valuePath = pathGetter();
+				const proto = Object.getPrototypeOf(v);
+				if (proto === Object.prototype || proto === null) {
+					if (active.has(v)) {
+						throw new SerializationError('Cannot serialize a circular object graph', valuePath, SerializationErrorCode.CIRCULAR_REFERENCE);
+					}
+					active.add(v);
+					try {
+						const plain = Object.create(null) as PlainObj;
+						for (const [key, item] of Object.entries(v as PlainObj)) {
+							setObjectKey(plain, key, serializeValue(item, () => `${valuePath}.${key}`));
+						}
+						return plain;
+					} finally {
+						active.delete(v);
+					}
+				}
+				return serializeInternal(v as object, valuePath, options, active);
 			}
 
 			return v;
 		}
 
-		if (metaOptions.isMap && value instanceof Map) {
+		if (metaOptions.isMap && !(value instanceof Map)) {
+			throw new SerializationError(`Expected Map for property "${propertyKey}"`, getPath(), SerializationErrorCode.INVALID_COLLECTION);
+		}
+		if (metaOptions.isSet && !(value instanceof Set)) {
+			throw new SerializationError(`Expected Set for property "${propertyKey}"`, getPath(), SerializationErrorCode.INVALID_COLLECTION);
+		}
+		if (metaOptions.isArray && !Array.isArray(value)) {
+			throw new SerializationError(`Expected array for property "${propertyKey}"`, getPath(), SerializationErrorCode.INVALID_COLLECTION);
+		}
+
+		if (metaOptions.isMap) {
 			const obj = Object.create(null) as PlainObj;
 			for (const [k, v] of (value as Map<string, unknown>)) {
 				setObjectKey(obj, k, serializeValue(v, () => `${getPath()}["${k}"]`));
@@ -732,7 +786,7 @@ export function serialize<V extends object>(instance: V, _path = '$', options: I
 			continue;
 		}
 
-		if (metaOptions.isSet && value instanceof Set) {
+		if (metaOptions.isSet) {
 			setObjectKey(result, jsonKey, Array.from(value as Set<unknown>).map((item, i) =>
 				serializeValue(item, () => `${getPath()}[${i}]`)
 			));
@@ -750,6 +804,13 @@ export function serialize<V extends object>(instance: V, _path = '$', options: I
 	}
 
 	return result;
+	} finally {
+		active.delete(instance);
+	}
+}
+
+export function serialize<V extends object>(instance: V, _path = '$', options: ISerializeOptions = {}): PlainObj {
+	return serializeInternal(instance, _path, options, new WeakSet<object>());
 }
 
 /**

@@ -20,6 +20,10 @@ export enum SerializationErrorCode {
 	UNMARKED_CLASS = 'UNMARKED_CLASS',
 	/** Input is not an array when array is expected */
 	NOT_AN_ARRAY = 'NOT_AN_ARRAY',
+	/** A declared collection property has the wrong runtime shape */
+	INVALID_COLLECTION = 'INVALID_COLLECTION',
+	/** A circular object reference was encountered */
+	CIRCULAR_REFERENCE = 'CIRCULAR_REFERENCE',
 }
 
 export class SerializationError extends Error {
