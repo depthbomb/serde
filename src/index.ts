@@ -524,7 +524,7 @@ export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {})
 			deserializeAsyncTransform: options.deserializeAsyncTransform ?? (async (v) => v),
 			serializeTransform: options.serializeTransform ?? ((v) => v),
 			serializeAsyncTransform: options.serializeAsyncTransform ?? (async (v) => v),
-			defaultValue: (options.defaultValue ?? undefined) as V,
+			defaultValue: options.defaultValue as V,
 			validate: options.validate ?? (() => undefined),
 			validateAsync: options.validateAsync ?? (async () => undefined),
 			groups: options.groups ?? [],
