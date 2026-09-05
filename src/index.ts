@@ -806,8 +806,14 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 		return deserialize(ctorOrEnum as Constructor, val as PlainObj, typeof path === 'function' ? path() : path, options);
 	}
 
-	const seenKeys = new Set<string>(); // track which keys we've assigned (for strict mode)
-	if (versionConfig) seenKeys.add(versionConfig.field);
+	const seenKeys = new Set<string>();
+	if (versionConfig) {
+		seenKeys.add(versionConfig.field);
+	}
+
+	if (discField) {
+		seenKeys.add(discField);
+	}
 	let instance: V;
 	try {
 		instance = new ctor();
@@ -824,8 +830,9 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 
 		let rawValue: unknown = hasKey ? raw[inputKey] : undefined;
 
-		if (hasKey) {
-			seenKeys.add(inputKey as string);
+		seenKeys.add(jsonKey);
+		for (const alias of metaOptions.aliases) {
+			seenKeys.add(alias);
 		}
 
 		if (rawValue === undefined) {
