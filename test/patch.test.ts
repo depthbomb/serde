@@ -1,5 +1,5 @@
-import { expect, test } from 'vitest';
-import { JSONProperty, patch, Serializable } from '../src/index';
+import { test, expect } from 'vitest';
+import { patch, JSONProperty, Serializable } from '../src';
 
 test('patch aliases replace existing canonical values and have deterministic precedence', () => {
 	@Serializable()
@@ -11,7 +11,7 @@ test('patch aliases replace existing canonical values and have deterministic pre
 		public value = 'original';
 	}
 	const original = new Model();
-	const options  = {
+	const options = {
 		strictPatch: true,
 		strict:      true,
 	};

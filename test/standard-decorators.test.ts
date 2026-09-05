@@ -1,10 +1,13 @@
-import { expect, test } from 'vitest';
 import ts from 'typescript';
-import { deserialize, generateJSONSchema, getJSONProperties, JSONProperty, Serializable, serialize } from '../src/index';
+import { test, expect } from 'vitest';
+import { serialize, deserialize, JSONProperty, Serializable, getJSONProperties, generateJSONSchema } from '../src';
 
 test('actual standard decorators expose inherited metadata before construction', () => {
 	const source = `
-const required = JSONProperty({ type: String, optional: false });
+const required = JSONProperty({
+	type:     String,
+	optional: false,
+});
 @Serializable()
 class Base {
 	@required
@@ -19,15 +22,24 @@ class Base {
 }
 @Serializable()
 class Child extends Base {
-	@JSONProperty({ type: Number })
+	@JSONProperty({
+		type: Number,
+	})
 	public third!: number;
 }
 @Serializable()
 class Sibling extends Base {
-	@JSONProperty({ type: Boolean })
+	@JSONProperty({
+		type: Boolean,
+	})
 	public fourth!: boolean;
 }
-return { Base, Child, Sibling };
+
+return {
+	Base,
+	Child,
+	Sibling,
+};
 `;
 	const compiled = ts.transpileModule(source, {
 		compilerOptions: {

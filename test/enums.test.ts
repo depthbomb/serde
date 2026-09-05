@@ -1,5 +1,5 @@
-import { expect, test } from 'vitest';
-import { deserialize, getEnumValues, JSONProperty, Serializable } from '../src/index';
+import { test, expect } from 'vitest';
+import { deserialize, JSONProperty, Serializable, getEnumValues } from '../src';
 
 enum Numeric {
 	Negative = -1,
@@ -10,7 +10,9 @@ enum Numeric {
 test('numeric enums reject reverse names for every numeric key representation', () => {
 	@Serializable()
 	class Model {
-		@JSONProperty({ type: Numeric })
+		@JSONProperty({
+			type: Numeric,
+		})
 		public value!: Numeric;
 	}
 

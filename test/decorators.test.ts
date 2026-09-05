@@ -1,5 +1,5 @@
-import { expect, test } from 'vitest';
-import { deserialize, generateJSONSchema, JSONProperty, Serializable, serialize } from '../src/index';
+import { test, expect } from 'vitest';
+import { serialize, deserialize, JSONProperty, Serializable, generateJSONSchema } from '../src';
 
 test('one reusable property decorator registers every field on a class', () => {
 	const required = JSONProperty({

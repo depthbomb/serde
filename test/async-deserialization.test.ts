@@ -1,5 +1,5 @@
-import { expect, test } from 'vitest';
-import { deserializeAsync, JSONProperty, Serializable } from '../src/index';
+import { test, expect } from 'vitest';
+import { JSONProperty, Serializable, deserializeAsync } from '../src';
 
 test('async hooks skip absent and ignored fields but process supplied values and defaults', async () => {
 	const transformed = [] as string[];
@@ -11,12 +11,12 @@ test('async hooks skip absent and ignored fields but process supplied values and
 
 				return value.toUpperCase();
 			},
-			validateAsync: async value => value.length > 0,
+			validateAsync:             async value => value.length > 0,
 		})
 		public optional = 'constructor';
 
 		@JSONProperty({
-			defaultValue: 'default',
+			defaultValue:              'default',
 			deserializeAsyncTransform: async (value: string) => value.toUpperCase(),
 		})
 		public defaulted!: string;

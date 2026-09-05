@@ -1,6 +1,12 @@
-import { serialize, deserialize, serializeAsync, deserializeAsync, getJSONProperties } from './';
-import type { Constructor, IDeserializeOptions, ISerializeOptions } from './';
 import { SerializationError, SerializationErrorCode } from './errors';
+import { serialize, deserialize, serializeAsync, deserializeAsync, getJSONProperties } from './';
+import type { Constructor, ISerializeOptions, IDeserializeOptions } from './';
+
+/** Options for patch key matching, serialization, and deserialization. */
+export interface IPatchOptions extends IDeserializeOptions, ISerializeOptions {
+	/** Reject patch keys that are not property names, canonical JSON names, or aliases. */
+	strictPatch?: boolean;
+}
 
 /**
  * Serialize to a JSON string.
@@ -33,22 +39,9 @@ export function fromJSON<V>(ctor: Constructor<V>, json: string): V {
  * const copy = clone(User, user);
  */
 export function clone<V extends object>(ctor: Constructor<V>, instance: V): V {
-	return deserialize(ctor, serialize(instance, '$', { includeSensitive: true }));
-}
-
-/**
- * Merge a partial plain-object patch into an existing instance. Keys present in `partial` override
- *  the current values; everything else is preserved.
- *
- * Note: This performs full serialization and deserialization. For simple updates, consider mutating
- *  the instance directly if the type system allows.
- *
- * @example
- * const updated = patch(User, user, { age: 37 });
- */
-export interface IPatchOptions extends IDeserializeOptions, ISerializeOptions {
-	/** Reject patch keys that are neither property names nor serialized JSON names. */
-	strictPatch?: boolean;
+	return deserialize(ctor, serialize(instance, '$', {
+		includeSensitive: true,
+	}));
 }
 
 export async function toJSONAsync<V extends object>(instance: V, space?: number): Promise<string> {
@@ -59,8 +52,23 @@ export async function fromJSONAsync<V>(ctor: Constructor<V>, json: string): Prom
 	return deserializeAsync(ctor, json);
 }
 
+/**
+ * Merge a partial plain-object patch into an existing instance. Keys present in `partial` override
+ * the current values; everything else is preserved.
+ *
+ * Note: This performs full serialization and deserialization. For simple updates, consider mutating
+ * the instance directly if the type system allows.
+ *
+ * @example
+ * const updated = patch(User, user, { age: 37 });
+ */
 export function patch<V extends object>(ctor: Constructor<V>, instance: V, partial: Record<string, unknown>, options: IPatchOptions = {}): V {
-	const next = { ...serialize(instance, '$', { ...options, includeSensitive: true }) } as Record<string, unknown>;
+	const next = {
+		...serialize(instance, '$', {
+			...options,
+			includeSensitive: true,
+		}),
+	} as Record<string, unknown>;
 	const mappings = getJSONProperties(ctor, options.namingStrategy);
 	const allowed  = new Set(mappings.flatMap(({ propertyKey, jsonKey, aliases }) => [propertyKey, jsonKey, ...aliases]));
 

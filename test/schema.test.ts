@@ -1,5 +1,13 @@
-import { expect, test } from 'vitest';
-import { generateJSONSchema, JSONDiscriminator, JSONProperty, JSONSubType, JSONVersion, Serializable, serialize } from '../src/index';
+import { test, expect } from 'vitest';
+import {
+	serialize,
+	JSONSubType,
+	JSONVersion,
+	JSONProperty,
+	Serializable,
+	JSONDiscriminator,
+	generateJSONSchema
+} from '../src';
 
 test('schemas declare emitted version and discriminator fields', () => {
 	@Serializable()
@@ -18,7 +26,7 @@ test('schemas declare emitted version and discriminator fields', () => {
 			type:  'integer',
 			const: raw.revision,
 		},
-		kind: {
+		kind:     {
 			type: 'string',
 			enum: [raw.kind],
 		},
@@ -30,12 +38,24 @@ test('schema identifiers distinguish same-name constructors and recursive root r
 	const First = class Model {};
 	const Other = class Model {};
 	const Root  = class Model {};
-	JSONProperty({ type: String })(First.prototype, 'text');
-	JSONProperty({ type: Number })(Other.prototype, 'number');
-	JSONProperty({ type: First })(Root.prototype, 'first');
-	JSONProperty({ type: Other })(Root.prototype, 'other');
-	JSONProperty({ type: Root })(Other.prototype, 'root');
-	JSONProperty({ type: Other })(Other.prototype, 'self');
+	JSONProperty({
+		type: String,
+	})(First.prototype, 'text');
+	JSONProperty({
+		type: Number,
+	})(Other.prototype, 'number');
+	JSONProperty({
+		type: First,
+	})(Root.prototype, 'first');
+	JSONProperty({
+		type: Other,
+	})(Root.prototype, 'other');
+	JSONProperty({
+		type: Root,
+	})(Other.prototype, 'root');
+	JSONProperty({
+		type: Other,
+	})(Other.prototype, 'self');
 	const schema = generateJSONSchema(Root);
 
 	expect(schema.properties).toEqual({
@@ -59,10 +79,10 @@ test('schema identifiers distinguish same-name constructors and recursive root r
 				number: {
 					type: 'number',
 				},
-				root: {
+				root:   {
 					$ref: '#',
 				},
-				self: {
+				self:   {
 					$ref: '#/$defs/Model_3',
 				},
 			},

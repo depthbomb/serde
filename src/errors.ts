@@ -1,39 +1,39 @@
 /** Error codes for SerializationError enabling type-safe error handling */
 export enum SerializationErrorCode {
 	/** A JSON string could not be parsed */
-	INVALID_JSON = 'INVALID_JSON',
+	INVALID_JSON          = 'INVALID_JSON',
 	/** Input or instance is null/undefined when it shouldn't be */
-	NULL_INPUT = 'NULL_INPUT',
+	NULL_INPUT            = 'NULL_INPUT',
 	/** A required property is missing from the input */
-	MISSING_PROPERTY = 'MISSING_PROPERTY',
+	MISSING_PROPERTY      = 'MISSING_PROPERTY',
 	/** A property value is null when nullable: 'error' is set */
-	NULL_NOT_ALLOWED = 'NULL_NOT_ALLOWED',
+	NULL_NOT_ALLOWED      = 'NULL_NOT_ALLOWED',
 	/** A value doesn't match the expected type (mismatch, invalid enum, etc.) */
-	TYPE_MISMATCH = 'TYPE_MISMATCH',
+	TYPE_MISMATCH         = 'TYPE_MISMATCH',
 	/** A discriminator value doesn't map to a known subtype */
 	UNKNOWN_DISCRIMINATOR = 'UNKNOWN_DISCRIMINATOR',
 	/** A polymorphic input omitted its required discriminator field */
 	MISSING_DISCRIMINATOR = 'MISSING_DISCRIMINATOR',
 	/** An enum value is invalid */
-	INVALID_ENUM_VALUE = 'INVALID_ENUM_VALUE',
+	INVALID_ENUM_VALUE    = 'INVALID_ENUM_VALUE',
 	/** Custom validation function returned false or error string */
-	VALIDATION_FAILED = 'VALIDATION_FAILED',
+	VALIDATION_FAILED     = 'VALIDATION_FAILED',
 	/** Strict mode rejected an unexpected property */
-	UNEXPECTED_PROPERTY = 'UNEXPECTED_PROPERTY',
+	UNEXPECTED_PROPERTY   = 'UNEXPECTED_PROPERTY',
 	/** Class was not decorated with @Serializable */
-	UNMARKED_CLASS = 'UNMARKED_CLASS',
+	UNMARKED_CLASS        = 'UNMARKED_CLASS',
 	/** Input is not an array when array is expected */
-	NOT_AN_ARRAY = 'NOT_AN_ARRAY',
+	NOT_AN_ARRAY          = 'NOT_AN_ARRAY',
 	/** A declared collection property has the wrong runtime shape */
-	INVALID_COLLECTION = 'INVALID_COLLECTION',
+	INVALID_COLLECTION    = 'INVALID_COLLECTION',
 	/** A circular object reference was encountered */
-	CIRCULAR_REFERENCE = 'CIRCULAR_REFERENCE',
+	CIRCULAR_REFERENCE    = 'CIRCULAR_REFERENCE',
 	/** A class constructor threw while creating an instance */
-	CONSTRUCTION_FAILED = 'CONSTRUCTION_FAILED',
+	CONSTRUCTION_FAILED   = 'CONSTRUCTION_FAILED',
 	/** A configured transform or default factory threw */
-	TRANSFORM_FAILED = 'TRANSFORM_FAILED',
-	MIGRATION_FAILED = 'MIGRATION_FAILED',
-	UNSUPPORTED_VERSION = 'UNSUPPORTED_VERSION',
+	TRANSFORM_FAILED      = 'TRANSFORM_FAILED',
+	MIGRATION_FAILED      = 'MIGRATION_FAILED',
+	UNSUPPORTED_VERSION   = 'UNSUPPORTED_VERSION',
 }
 
 export class SerializationError extends Error {

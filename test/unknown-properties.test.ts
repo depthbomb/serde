@@ -1,10 +1,12 @@
-import { expect, test } from 'vitest';
-import { deserialize, JSONDiscriminator, JSONProperty, JSONSubType, Serializable, serialize } from '../src/index';
+import { test, expect } from 'vitest';
+import { serialize, deserialize, JSONSubType, JSONProperty, Serializable, JSONDiscriminator } from '../src';
 
 test('strict and collect modes recognize all aliases while canonical input wins', () => {
 	@Serializable()
 	class Model {
-		@JSONProperty({ aliases: ['old_value'] })
+		@JSONProperty({
+			aliases: ['old_value'],
+		})
 		public value!: string;
 
 		public extra!: Record<string, unknown>;

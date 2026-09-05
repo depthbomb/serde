@@ -1,5 +1,5 @@
-import { expect, test } from 'vitest';
-import { JSONProperty, Serializable, serialize, serializeAsync } from '../src/index';
+import { test, expect } from 'vitest';
+import { serialize, JSONProperty, Serializable, serializeAsync } from '../src';
 
 test('invalid dates expose structured paths and preserve native causes', async () => {
 	@Serializable()

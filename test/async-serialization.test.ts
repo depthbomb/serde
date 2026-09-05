@@ -1,5 +1,5 @@
-import { expect, test } from 'vitest';
-import { JSONProperty, Serializable, serialize, serializeAsync } from '../src/index';
+import { test, expect } from 'vitest';
+import { serialize, JSONProperty, Serializable, serializeAsync } from '../src';
 
 test('async serialization permits shared siblings and rejects ancestor cycles', async () => {
 	@Serializable()
@@ -9,11 +9,13 @@ test('async serialization permits shared siblings and rejects ancestor cycles', 
 	}
 	@Serializable()
 	class Parent {
-		@JSONProperty({ isArray: true })
+		@JSONProperty({
+			isArray: true,
+		})
 		public children = [] as object[];
 	}
-	const child  = new Child();
-	const parent = new Parent();
+	const child     = new Child();
+	const parent    = new Parent();
 	parent.children = [child, child];
 
 	expect(await serializeAsync(parent)).toEqual(serialize(parent));
@@ -38,7 +40,9 @@ test('async serialization preserves codecs and synchronous wire transforms', asy
 	};
 	@Serializable()
 	class Parent {
-		@JSONProperty({ codec })
+		@JSONProperty({
+			codec,
+		})
 		public child = new Child();
 
 		@JSONProperty({
@@ -47,7 +51,9 @@ test('async serialization preserves codecs and synchronous wire transforms', asy
 		})
 		public children = [new Child()];
 
-		@JSONProperty({ serializeTransform: (value: Child) => value.id })
+		@JSONProperty({
+			serializeTransform: (value: Child) => value.id,
+		})
 		public transformed = new Child();
 	}
 	const value = new Parent();
@@ -63,7 +69,9 @@ test('async serialization preserves codecs and synchronous wire transforms', asy
 test('async hooks run inside plain objects and nested array wrappers', async () => {
 	@Serializable()
 	class Child {
-		@JSONProperty({ serializeAsyncTransform: async (value: string) => value.toUpperCase() })
+		@JSONProperty({
+			serializeAsyncTransform: async (value: string) => value.toUpperCase(),
+		})
 		public value = 'lowercase';
 	}
 	@Serializable()
@@ -86,11 +94,13 @@ test('async hooks run inside plain objects and nested array wrappers', async () 
 test('async transforms normalize unsupported input before serialization', async () => {
 	@Serializable()
 	class Bytes {
-		@JSONProperty({ serializeAsyncTransform: async (value: Uint8Array) => Array.from(value) })
+		@JSONProperty({
+			serializeAsyncTransform: async (value: Uint8Array) => Array.from(value),
+		})
 		public bytes = new Uint8Array([1, 2]);
 
 		@JSONProperty({
-			sensitive: true,
+			sensitive:               true,
 			serializeAsyncTransform: async () => {
 				throw new Error('Hidden transforms must not run');
 			},
@@ -99,7 +109,9 @@ test('async transforms normalize unsupported input before serialization', async 
 	}
 	@Serializable()
 	class Parent {
-		@JSONProperty({ type: Bytes })
+		@JSONProperty({
+			type: Bytes,
+		})
 		public child = new Bytes();
 	}
 
@@ -124,7 +136,9 @@ test('async traversal invokes each transform once on a deep chain', async () => 
 		})
 		public value = 1;
 
-		@JSONProperty({ type: () => Node })
+		@JSONProperty({
+			type: () => Node,
+		})
 		public child?: Node;
 	}
 	const root = new Node();
@@ -134,7 +148,7 @@ test('async traversal invokes each transform once on a deep chain', async () => 
 		tail       = tail.child;
 	}
 	const expected = serialize(root);
-	calls = 0;
+	calls          = 0;
 
 	expect(await serializeAsync(root)).toEqual(expected);
 	expect(calls).toBe(256);
@@ -144,7 +158,7 @@ test('async output cycles are rejected and escaped keys remain safe', async () =
 	@Serializable()
 	class Model {
 		@JSONProperty({
-			name: '__proto__',
+			name:                    '__proto__',
 			serializeAsyncTransform: async (value: object) => value,
 		})
 		public value = {} as object;
@@ -164,7 +178,9 @@ test('async output cycles are rejected and escaped keys remain safe', async () =
 test('async normalization includes class instances produced by codecs', async () => {
 	@Serializable()
 	class WireValue {
-		@JSONProperty({ serializeAsyncTransform: async (value: string) => value.toUpperCase() })
+		@JSONProperty({
+			serializeAsyncTransform: async (value: string) => value.toUpperCase(),
+		})
 		public text = 'wire';
 	}
 	@Serializable()

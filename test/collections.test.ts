@@ -1,20 +1,20 @@
-import { expect, test } from 'vitest';
-import { deserialize, deserializeAsync, JSONProperty, Serializable } from '../src/index';
+import { test, expect } from 'vitest';
+import { deserialize, JSONProperty, Serializable, deserializeAsync } from '../src';
 
 test.each(['map', 'set'] as const)('%s runs transforms and validators after collection conversion', async kind => {
 	const calls = [] as string[];
 	@Serializable()
 	class Collection {
 		@JSONProperty({
-			isMap: kind === 'map',
-			isSet: kind === 'set',
+			isMap:                kind === 'map',
+			isSet:                kind === 'set',
 			deserializeTransform: value => {
 				expect(value).toBeInstanceOf(kind === 'map' ? Map : Set);
 				calls.push('transform');
 
 				return value;
 			},
-			validate: () => {
+			validate:             () => {
 				calls.push('validate');
 
 				return 'invalid collection';

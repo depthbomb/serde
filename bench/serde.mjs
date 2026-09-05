@@ -1,12 +1,12 @@
-import assert from 'node:assert/strict';
-import { performance } from 'node:perf_hooks';
 import { cpus } from 'node:os';
-import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
+import assert from 'node:assert/strict';
+import { pathToFileURL } from 'node:url';
+import { performance } from 'node:perf_hooks';
 
-const modulePath = resolve(process.argv[2] ?? resolve(import.meta.dirname, '../dist/index.mjs'));
+const modulePath                                                                               = resolve(process.argv[2] ?? resolve(import.meta.dirname, '../dist/index.mjs'));
 const { Serializable, JSONProperty, serialize, serializeAsync, deserialize, deserializeAsync } = await import(pathToFileURL(modulePath));
-let conversionCount = 0;
+let conversionCount                                                                            = 0;
 
 class Flat {}
 class Item {}
@@ -58,6 +58,30 @@ JSONProperty({
 	type: CountedChain,
 })(CountedChain.prototype, 'child');
 
+
+const flat = Object.assign(new Flat(), {
+	id:      1,
+	name:    'Ada',
+	email:   'ada@example.com',
+	age:     36,
+	active:  true,
+	city:    'London',
+	country: 'GB',
+	score:   42,
+});
+const order = Object.assign(new Order(), {
+	id:     17,
+	items:  Array.from({
+		length: 20,
+	}, (_, index) => Object.assign(new Item(), {
+		sku:      `sku-${index}`,
+		quantity: index + 1,
+		price:    12.5,
+		created:  new Date('2026-09-01T12:00:00Z'),
+	})),
+	totals: new Map([['subtotal', 2625], ['tax', 210]]),
+});
+
 function makeChain(ctor, depth) {
 	let child;
 	for (let value = 0; value < depth; value++) {
@@ -72,29 +96,6 @@ function makeChain(ctor, depth) {
 	return child;
 }
 
-const flat = Object.assign(new Flat(), {
-	id:      1,
-	name:    'Ada',
-	email:   'ada@example.com',
-	age:     36,
-	active:  true,
-	city:    'London',
-	country: 'GB',
-	score:   42,
-});
-const order = Object.assign(new Order(), {
-	id: 17,
-	items: Array.from({
-		length: 20,
-	}, (_, index) => Object.assign(new Item(), {
-		sku:      `sku-${index}`,
-		quantity: index + 1,
-		price:    12.5,
-		created:  new Date('2026-09-01T12:00:00Z'),
-	})),
-	totals: new Map([['subtotal', 2625], ['tax', 210]]),
-});
-
 async function benchmark(name, operation, isAsync) {
 	for (let index = 0; index < 100; index++) {
 		if (isAsync) {
@@ -106,7 +107,7 @@ async function benchmark(name, operation, isAsync) {
 
 	const samples = [];
 	for (let sample = 0; sample < 5; sample++) {
-		let count = 0;
+		let count     = 0;
 		const started = performance.now();
 		let elapsed;
 		do {
@@ -141,11 +142,11 @@ console.log(JSON.stringify({
 }));
 
 for (const depth of [32, 64, 128, 256]) {
-	const value = makeChain(CountedChain, depth);
-	conversionCount = 0;
-	const sync = serialize(value);
-	const syncCount = conversionCount;
-	conversionCount = 0;
+	const value       = makeChain(CountedChain, depth);
+	conversionCount   = 0;
+	const sync        = serialize(value);
+	const syncCount   = conversionCount;
+	conversionCount   = 0;
 	const asyncResult = await serializeAsync(value);
 	assert.deepEqual(asyncResult, sync);
 	console.log(JSON.stringify({

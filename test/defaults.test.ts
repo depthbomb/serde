@@ -1,5 +1,5 @@
-import { expect, test } from 'vitest';
-import { deserialize, JSONProperty, Serializable, serialize } from '../src/index';
+import { test, expect } from 'vitest';
+import { serialize, deserialize, JSONProperty, Serializable } from '../src';
 
 test('an explicit null default satisfies a required nullable field', () => {
 	@Serializable()
