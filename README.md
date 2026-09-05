@@ -14,6 +14,8 @@ npm install @depthbomb/serde
 
 Legacy TypeScript decorators use the following setting. Standard ECMAScript field decorators are also supported and do not require `experimentalDecorators`.
 
+Standard decorators expose schema metadata before any instances are created, including inherited fields. Serde supplies `Symbol.metadata` when the runtime lacks it, as required by [TypeScript decorator metadata](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-2.html#decorator-metadata). No constructors run during schema generation.
+
 ```json
 {
 	"compilerOptions": {

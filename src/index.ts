@@ -156,10 +156,37 @@ const T = Symbol('serde.subtypes');
 const F = Symbol('serde.fallback');
 const V = Symbol('serde.version');
 const metaVersions = new WeakMap<Constructor, number>();
+const standardRegistrations = new WeakMap<object, Array<(ctor: AnyFn) => void>>();
+const initializedStandardMetas = new WeakSet<Constructor>();
+const metadataSymbol = getMetadataSymbol();
 
 const enumValueCache    = new WeakMap<EnumType, (string | number)[]>();
 const enumValueSetCache = new WeakMap<EnumType, Set<string | number>>();
 const enumCache         = new WeakSet<EnumType>();
+
+function getMetadataSymbol(): symbol {
+	if (!Symbol.metadata) {
+		Object.defineProperty(Symbol, 'metadata', {
+			value: Symbol('Symbol.metadata'),
+		});
+	}
+
+	return Symbol.metadata;
+}
+
+function registerStandardMetas(ctor: AnyFn): void {
+	if (initializedStandardMetas.has(ctor) || !Object.prototype.hasOwnProperty.call(ctor, metadataSymbol)) {
+		return;
+	}
+
+	const metadata = ctor[metadataSymbol];
+	if (metadata && typeof metadata === 'object') {
+		for (const register of standardRegistrations.get(metadata) ?? []) {
+			register(ctor);
+		}
+		initializedStandardMetas.add(ctor);
+	}
+}
 
 function childPath(path: string, key: string): string {
 	return /^[A-Za-z_$][\w$]*$/.test(key) ? `${path}.${key}` : `${path}[${JSON.stringify(key)}]`;
@@ -291,6 +318,7 @@ function allMetas(ctor: Constructor): IPropertyMeta[] {
 	const owners: AnyFn[] = [];
 	let owner: object | null = ctor;
 	while (owner && owner !== Function.prototype && owner !== Object.prototype) {
+		registerStandardMetas(owner as AnyFn);
 		if (Object.prototype.hasOwnProperty.call(owner, P)) {
 			owners.push(owner as AnyFn);
 		}
@@ -573,6 +601,14 @@ export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {})
 				throw new Error('@JSONProperty only supports public instance string keys.');
 			}
 			const key = propertyKey.name;
+			const metadata = propertyKey.metadata as object | undefined;
+			if (metadata) {
+				const registrations = standardRegistrations.get(metadata) ?? [];
+				registrations.push(ctor => register(ctor, key));
+				standardRegistrations.set(metadata, registrations);
+				return;
+			}
+
 			propertyKey.addInitializer(function (this: object) {
 				register(this.constructor as AnyFn, key);
 			});
