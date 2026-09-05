@@ -229,6 +229,8 @@ serialize(session, '$', { groups: ['admin'], includeSensitive: true });
 
 `generateJSONSchema(Session)` produces draft 2020-12 JSON Schema, including nested definitions, enums, aliases, groups, nullability, collections, and codec schema fragments.
 
+In async serialization, `serializeAsyncTransform` receives the original non-null property value and produces its wire representation. It takes precedence over that property's synchronous transform, codec, and collection conversion. Its output is recursively normalized, including nested serializable instances. Projection filtering and null handling apply before invoking the transform; null handling also applies to its result.
+
 ### Global Naming Strategies
 
 You can globally format property keys into standardized JSON casing like `snake_case` or `PascalCase` without manually applying the `.name` attribute on every single property wrapper:

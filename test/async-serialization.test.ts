@@ -82,3 +82,31 @@ test('async hooks run inside plain objects and nested array wrappers', async () 
 		},
 	});
 });
+
+test('async transforms normalize unsupported input before serialization', async () => {
+	@Serializable()
+	class Bytes {
+		@JSONProperty({ serializeAsyncTransform: async (value: Uint8Array) => Array.from(value) })
+		public bytes = new Uint8Array([1, 2]);
+
+		@JSONProperty({
+			sensitive: true,
+			serializeAsyncTransform: async () => {
+				throw new Error('Hidden transforms must not run');
+			},
+		})
+		public secret = 'hidden';
+	}
+	@Serializable()
+	class Parent {
+		@JSONProperty({ type: Bytes })
+		public child = new Bytes();
+	}
+
+	expect(await serializeAsync(new Parent())).toEqual({
+		child: {
+			bytes: [1, 2],
+		},
+	});
+	expect(() => serialize(new Bytes())).toThrow('unmarked class');
+});

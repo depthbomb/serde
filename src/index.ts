@@ -209,7 +209,7 @@ function serializeDate(value: Date, pathGetter: () => string): string {
 	}
 }
 
-function serializeValue(v: unknown, pathGetter: () => string, codec: JSONCodec | null, options: ISerializeOptions, active: WeakSet<object>): unknown {
+function serializeValue(v: unknown, pathGetter: () => string, codec: JSONCodec | null, options: ISerializeOptions, active: WeakSet<object>, deferAsync = false): unknown {
 	if (v === null || v === undefined) return v;
 	if (codec) {
 		try {
@@ -229,7 +229,7 @@ function serializeValue(v: unknown, pathGetter: () => string, codec: JSONCodec |
 		if (active.has(v)) throw new SerializationError('Cannot serialize a circular object graph', valuePath, SerializationErrorCode.CIRCULAR_REFERENCE);
 		active.add(v);
 		try {
-			return v.map((item, index) => serializeValue(item, () => `${valuePath}[${index}]`, null, options, active));
+			return v.map((item, index) => serializeValue(item, () => `${valuePath}[${index}]`, null, options, active, deferAsync));
 		} finally {
 			active.delete(v);
 		}
@@ -243,14 +243,14 @@ function serializeValue(v: unknown, pathGetter: () => string, codec: JSONCodec |
 			try {
 				const plain = Object.create(null) as PlainObj;
 				for (const [key, item] of Object.entries(v as PlainObj)) {
-					setObjectKey(plain, key, serializeValue(item, () => childPath(valuePath, key), null, options, active));
+					setObjectKey(plain, key, serializeValue(item, () => childPath(valuePath, key), null, options, active, deferAsync));
 				}
 				return plain;
 			} finally {
 				active.delete(v);
 			}
 		}
-		return serializeInternal(v, valuePath, options, active);
+		return serializeInternal(v, valuePath, options, active, deferAsync);
 	}
 	return v;
 }
@@ -1076,7 +1076,7 @@ export function deserializeArray<V>(ctor: Constructor<V>, data: PlainObj[] | str
  * @example
  * const plain = serialize(user); // { first_name: "Ada", age: 36 }
  */
-function serializeInternal<V extends object>(instance: V, _path: string, options: ISerializeOptions, active: WeakSet<object>): PlainObj {
+function serializeInternal<V extends object>(instance: V, _path: string, options: ISerializeOptions, active: WeakSet<object>, deferAsync = false): PlainObj {
 	if (instance === null || instance === undefined) {
 		throw new SerializationError('Cannot serialize null/undefined', _path, SerializationErrorCode.NULL_INPUT);
 	}
@@ -1102,6 +1102,10 @@ function serializeInternal<V extends object>(instance: V, _path: string, options
 			continue;
 		}
 		if (options.groups?.length && metaOptions.groups.length && !metaOptions.groups.some(group => options.groups?.includes(group))) {
+			continue;
+		}
+
+		if (deferAsync && meta.hasSerializeAsyncTransform) {
 			continue;
 		}
 
@@ -1143,7 +1147,7 @@ function serializeInternal<V extends object>(instance: V, _path: string, options
 		if (metaOptions.isMap) {
 			const obj = Object.create(null) as PlainObj;
 			for (const [k, v] of (value as Map<string, unknown>)) {
-				setObjectKey(obj, k, serializeValue(v, () => childPath(getPath(), k), metaOptions.codec, options, active));
+				setObjectKey(obj, k, serializeValue(v, () => childPath(getPath(), k), metaOptions.codec, options, active, deferAsync));
 			}
 
 			setObjectKey(result, jsonKey, obj);
@@ -1152,19 +1156,19 @@ function serializeInternal<V extends object>(instance: V, _path: string, options
 
 		if (metaOptions.isSet) {
 			setObjectKey(result, jsonKey, Array.from(value as Set<unknown>).map((item, i) =>
-				serializeValue(item, () => `${getPath()}[${i}]`, metaOptions.codec, options, active)
+				serializeValue(item, () => `${getPath()}[${i}]`, metaOptions.codec, options, active, deferAsync)
 			));
 			continue;
 		}
 
 		if (Array.isArray(value)) {
 			setObjectKey(result, jsonKey, (value as unknown[]).map((item, i) =>
-				serializeValue(item, () => `${getPath()}[${i}]`, metaOptions.codec, options, active)
+				serializeValue(item, () => `${getPath()}[${i}]`, metaOptions.codec, options, active, deferAsync)
 			));
 			continue;
 		}
 
-		setObjectKey(result, jsonKey, serializeValue(value, getPath, metaOptions.codec, options, active));
+		setObjectKey(result, jsonKey, serializeValue(value, getPath, metaOptions.codec, options, active, deferAsync));
 	}
 
 	const discField = (ctor as AnyFn)[D] as string | undefined;
@@ -1258,7 +1262,7 @@ export function serialize<V extends object>(instance: V, _path = '$', options: I
 
 /** Serialize while applying async property transforms recursively. */
 export async function serializeAsync<V extends object>(instance: V, _path = '$', options: ISerializeOptions = {}): Promise<PlainObj> {
-	const result = serialize(instance, _path, options);
+	const result = serializeInternal(instance, _path, options, new WeakSet<object>(), true);
 	const active = new WeakSet<object>();
 
 	const normalize = async (value: unknown, path: string): Promise<unknown> => {
@@ -1296,7 +1300,17 @@ export async function serializeAsync<V extends object>(instance: V, _path = '$',
 
 	for (const meta of allMetas(instance.constructor as Constructor)) {
 		const jsonKey = meta.explicitName ? meta.options.name : (options.namingStrategy ? options.namingStrategy(meta.propertyKey) : meta.options.name);
-		if (!Object.prototype.hasOwnProperty.call(result, jsonKey)) continue;
+		if (meta.options.sensitive && !options.includeSensitive) {
+			continue;
+		}
+
+		if (options.groups?.length && meta.options.groups.length && !meta.options.groups.some(group => options.groups?.includes(group))) {
+			continue;
+		}
+
+		if (!Object.prototype.hasOwnProperty.call(result, jsonKey) && !meta.hasSerializeAsyncTransform) {
+			continue;
+		}
 		if (!meta.hasSerializeAsyncTransform) {
 			if (meta.options.codec || meta.hasSerializeTransform) {
 				continue;
@@ -1309,8 +1323,21 @@ export async function serializeAsync<V extends object>(instance: V, _path = '$',
 			continue;
 		}
 		try {
-			const transformed = await meta.options.serializeAsyncTransform((instance as PlainObj)[meta.propertyKey] as never);
-			result[jsonKey] = await normalize(transformed, childPath(_path, jsonKey));
+			const value = (instance as PlainObj)[meta.propertyKey];
+			const transformed = value === null || value === undefined
+				? value
+				: await meta.options.serializeAsyncTransform(value as never);
+			if (transformed === null || transformed === undefined) {
+				if (meta.options.nullable === 'error') {
+					throw new SerializationError(`Property "${meta.propertyKey}" must not be null/undefined`, childPath(_path, jsonKey), SerializationErrorCode.NULL_NOT_ALLOWED);
+				}
+
+				if (meta.options.nullable === 'null') {
+					setObjectKey(result, jsonKey, null);
+				}
+				continue;
+			}
+			setObjectKey(result, jsonKey, await normalize(transformed, childPath(_path, jsonKey)));
 		} catch (cause) {
 			if (cause instanceof SerializationError) throw cause;
 			throw new SerializationError(`Async serialization transform failed for property "${jsonKey}"`, childPath(_path, jsonKey), SerializationErrorCode.TRANSFORM_FAILED, cause);
