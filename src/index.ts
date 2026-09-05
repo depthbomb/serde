@@ -502,9 +502,13 @@ export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {})
 		throw new Error('@JSONProperty codec and type options are mutually exclusive.');
 	}
 
-	const registered = new WeakSet<Constructor>();
+	const registered = new WeakMap<Constructor, Set<string>>();
 	const register = (ctor: AnyFn, key: string): void => {
-		if (registered.has(ctor)) return;
+		const registeredKeys = registered.get(ctor);
+		if (registeredKeys?.has(key)) {
+			return;
+		}
+
 		if (typeof key !== 'string') {
 			throw new Error('@JSONProperty only supports string keys.');
 		}
@@ -549,7 +553,7 @@ export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {})
 			metas.push(entry as IPropertyMeta<unknown>);
 		}
 		metaVersions.set(ctor, (metaVersions.get(ctor) ?? 0) + 1);
-		registered.add(ctor);
+		registered.set(ctor, (registeredKeys ?? new Set<string>()).add(key));
 	};
 
 	return (target, propertyKey) => {
