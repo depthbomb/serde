@@ -27,6 +27,7 @@
 		"newLine": "lf",
 		"noEmitHelpers": true,
 		"outDir": "dist",
+		"rootDir": "src",
 		"preserveConstEnums": false,
 		"removeComments": false,
 		"sourceMap": true,

@@ -439,6 +439,12 @@ Patch keys may use property names, canonical JSON names, or aliases, including w
 
 ---
 
+## Development
+
+Run `yarn lint` to lint `src` with Oxlint, or `yarn check` for source and test type checks, linting, unit tests, and package consumer checks.
+
+`.oxlintrc.json` preserves the supported ESLint rule severities and TypeScript overrides. Type-aware linting uses `oxlint-tsgolint` to retain the dot-notation check; explicit `rootDir` settings support its TypeScript compiler. The former `eol-last` formatting warning is omitted because Oxlint has no native equivalent. See the [Oxlint migration guide](https://oxc.rs/docs/guide/usage/linter/migrate-from-eslint.html).
+
 ## Error handling
 
 All library, parser, migration, codec, transform, validation, and constructor failures are exposed as `SerializationError`. Native failures are preserved in `.cause`; `.path` uses JSONPath-style notation:

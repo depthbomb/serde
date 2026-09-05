@@ -2,11 +2,9 @@
 src/
 .swc/
 .yarn/
-.eslintignore
-.eslintrc
+.oxlintrc.json
 .gitignore
 .release-it.json
 .yarnrc.yml
-tsconfig.eslint.json
 tsconfig.json
 yarn.lock
