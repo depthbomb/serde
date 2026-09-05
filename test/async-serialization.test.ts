@@ -59,3 +59,26 @@ test('async serialization preserves codecs and synchronous wire transforms', asy
 	});
 	expect(await serializeAsync(value)).toEqual(serialize(value));
 });
+
+test('async hooks run inside plain objects and nested array wrappers', async () => {
+	@Serializable()
+	class Child {
+		@JSONProperty({ serializeAsyncTransform: async (value: string) => value.toUpperCase() })
+		public value = 'lowercase';
+	}
+	@Serializable()
+	class Parent {
+		@JSONProperty()
+		public wrapper = {
+			children: [[new Child()]],
+		};
+	}
+
+	expect(await serializeAsync(new Parent())).toEqual({
+		wrapper: {
+			children: [[{
+				value: 'LOWERCASE',
+			}]],
+		},
+	});
+});

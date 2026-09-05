@@ -1303,11 +1303,7 @@ export async function serializeAsync<V extends object>(instance: V, _path = '$',
 			}
 
 			const typed = (instance as PlainObj)[meta.propertyKey];
-			const hasNestedSerializable = (item: unknown): boolean => Boolean(item && typeof item === 'object' && isSerializable((item as object).constructor as Constructor));
-			if (hasNestedSerializable(typed)
-				|| (Array.isArray(typed) && typed.some(hasNestedSerializable))
-				|| (typed instanceof Set && Array.from(typed).some(hasNestedSerializable))
-				|| (typed instanceof Map && Array.from(typed.values()).some(hasNestedSerializable))) {
+			if (typed && typeof typed === 'object') {
 				result[jsonKey] = await normalize(typed, childPath(_path, jsonKey));
 			}
 			continue;
