@@ -23,3 +23,39 @@ test('async serialization permits shared siblings and rejects ancestor cycles', 
 		path: '$.children[0]',
 	});
 });
+
+test('async serialization preserves codecs and synchronous wire transforms', async () => {
+	@Serializable()
+	class Child {
+		@JSONProperty()
+		public id = 7;
+	}
+	const codec = {
+		serialize:   (value: Child) => value.id,
+		deserialize: (value: unknown) => Object.assign(new Child(), {
+			id: Number(value),
+		}),
+	};
+	@Serializable()
+	class Parent {
+		@JSONProperty({ codec })
+		public child = new Child();
+
+		@JSONProperty({
+			codec,
+			isArray: true,
+		})
+		public children = [new Child()];
+
+		@JSONProperty({ serializeTransform: (value: Child) => value.id })
+		public transformed = new Child();
+	}
+	const value = new Parent();
+
+	expect(await serializeAsync(value)).toEqual({
+		child:       7,
+		children:    [7],
+		transformed: 7,
+	});
+	expect(await serializeAsync(value)).toEqual(serialize(value));
+});

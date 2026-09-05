@@ -11,6 +11,7 @@ interface IPropertyMeta<V = unknown> {
 	explicitName: boolean;
 	hasDeserializeAsyncTransform: boolean;
 	hasSerializeAsyncTransform: boolean;
+	hasSerializeTransform: boolean;
 	hasValidateAsync: boolean;
 	resolvedType: Constructor<V> | AnyEnum | null;
 }
@@ -581,6 +582,7 @@ export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {})
 			explicitName: options.name !== undefined,
 			hasDeserializeAsyncTransform: options.deserializeAsyncTransform !== undefined,
 			hasSerializeAsyncTransform: options.serializeAsyncTransform !== undefined,
+			hasSerializeTransform: options.serializeTransform !== undefined,
 			hasValidateAsync: options.validateAsync !== undefined,
 			resolvedType: options.type && (typeof options.type === 'object' || (typeof options.type === 'function' && Object.prototype.hasOwnProperty.call(options.type, 'prototype')))
 				? options.type as Constructor<V> | AnyEnum
@@ -1296,6 +1298,10 @@ export async function serializeAsync<V extends object>(instance: V, _path = '$',
 		const jsonKey = meta.explicitName ? meta.options.name : (options.namingStrategy ? options.namingStrategy(meta.propertyKey) : meta.options.name);
 		if (!Object.prototype.hasOwnProperty.call(result, jsonKey)) continue;
 		if (!meta.hasSerializeAsyncTransform) {
+			if (meta.options.codec || meta.hasSerializeTransform) {
+				continue;
+			}
+
 			const typed = (instance as PlainObj)[meta.propertyKey];
 			const hasNestedSerializable = (item: unknown): boolean => Boolean(item && typeof item === 'object' && isSerializable((item as object).constructor as Constructor));
 			if (hasNestedSerializable(typed)
