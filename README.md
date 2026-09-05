@@ -433,6 +433,8 @@ const copy    = clone(User, user);              // deep-independent copy
 const updated = patch(User, user, { age: 37 }); // non-destructive update
 ```
 
+Patch keys may use property names, canonical JSON names, or aliases, including with `strictPatch: true`. If several names for one field appear in the patch, the property name wins, then the canonical JSON name, then the first declared alias.
+
 ---
 
 ## Error handling

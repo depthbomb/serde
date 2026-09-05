@@ -624,10 +624,15 @@ export function JSONProperty<V = unknown>(options: IJSONPropertyOptions<V> = {})
 }
 
 /** Read-only property-to-JSON mappings for a serializable class. */
-export function getJSONProperties(ctor: Constructor, namingStrategy?: NamingStrategy): ReadonlyArray<Readonly<{ propertyKey: string; jsonKey: string }>> {
+export function getJSONProperties(ctor: Constructor, namingStrategy?: NamingStrategy): ReadonlyArray<Readonly<{
+	propertyKey: string;
+	jsonKey:     string;
+	aliases:     readonly string[];
+}>> {
 	return allMetas(ctor).map(({ propertyKey, options, explicitName }) => Object.freeze({
 		propertyKey,
 		jsonKey: explicitName ? options.name : (namingStrategy ? namingStrategy(propertyKey) : options.name),
+		aliases: Object.freeze([...options.aliases]),
 	}));
 }
 

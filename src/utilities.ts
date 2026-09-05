@@ -60,9 +60,9 @@ export async function fromJSONAsync<V>(ctor: Constructor<V>, json: string): Prom
 }
 
 export function patch<V extends object>(ctor: Constructor<V>, instance: V, partial: Record<string, unknown>, options: IPatchOptions = {}): V {
-	const next = { ...serialize(instance, '$', { ...options, includeSensitive: true }), ...partial } as Record<string, unknown>;
+	const next = { ...serialize(instance, '$', { ...options, includeSensitive: true }) } as Record<string, unknown>;
 	const mappings = getJSONProperties(ctor, options.namingStrategy);
-	const allowed = new Set(mappings.flatMap(({ propertyKey, jsonKey }) => [propertyKey, jsonKey]));
+	const allowed  = new Set(mappings.flatMap(({ propertyKey, jsonKey, aliases }) => [propertyKey, jsonKey, ...aliases]));
 
 	if (options.strictPatch) {
 		for (const key of Object.keys(partial)) {
@@ -72,12 +72,26 @@ export function patch<V extends object>(ctor: Constructor<V>, instance: V, parti
 		}
 	}
 
-	for (const { propertyKey, jsonKey } of mappings) {
-		if (Object.prototype.hasOwnProperty.call(partial, propertyKey)) {
-			next[jsonKey] = partial[propertyKey];
-			if (propertyKey !== jsonKey) {
-				delete next[propertyKey];
-			}
+	for (const { propertyKey, jsonKey, aliases } of mappings) {
+		const inputKey = [propertyKey, jsonKey, ...aliases].find(key => Object.prototype.hasOwnProperty.call(partial, key));
+		if (inputKey !== undefined) {
+			Object.defineProperty(next, jsonKey, {
+				value:        partial[inputKey],
+				enumerable:   true,
+				configurable: true,
+				writable:     true,
+			});
+		}
+	}
+
+	for (const key of Object.keys(partial)) {
+		if (!allowed.has(key)) {
+			Object.defineProperty(next, key, {
+				value:        partial[key],
+				enumerable:   true,
+				configurable: true,
+				writable:     true,
+			});
 		}
 	}
 
