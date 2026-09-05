@@ -23,16 +23,39 @@ try {
 	});
 
 	writeFileSync(join(temporary, 'consumer.mts'), `
-import { JSONProperty, Serializable, serialize, type Constructor } from '@depthbomb/serde';
-import { SerializationError } from '@depthbomb/serde/errors';
-import { toJSON } from '@depthbomb/serde/utilities';
-class Consumer { value!: string }
+import { JSONProperty, Serializable, serialize, toJSON, fromJSON, clone, patch, toJSONAsync, fromJSONAsync, SerializationError, type Constructor } from '@depthbomb/serde';
+import { SerializationError as SubpathError } from '@depthbomb/serde/errors';
+import { toJSON as subpathToJSON } from '@depthbomb/serde/utilities';
+class Consumer {
+	public value!: string;
+}
 Serializable()(Consumer);
 JSONProperty()(Consumer.prototype, 'value');
 const ctor: Constructor<Consumer> = Consumer;
-const value = Object.assign(new ctor(), { value: 'works' });
-if (toJSON(value) !== '{"value":"works"}') throw new SerializationError('smoke failure', '$');
-if (serialize(value).value !== 'works') throw new Error('runtime export failure');
+const value = Object.assign(new ctor(), {
+	value: 'works',
+});
+if (toJSON !== subpathToJSON || SerializationError !== SubpathError) {
+	throw new Error('Root and subpath exports differ');
+}
+
+if (toJSON(value) !== '{"value":"works"}' || serialize(value).value !== 'works') {
+	throw new SerializationError('smoke failure', '$');
+}
+
+if (fromJSON(Consumer, toJSON(value)).value !== 'works' || clone(Consumer, value).value !== 'works') {
+	throw new Error('Synchronous utility export failure');
+}
+
+if (patch(Consumer, value, {
+	value: 'updated',
+}).value !== 'updated') {
+	throw new Error('Patch export failure');
+}
+
+if ((await fromJSONAsync(Consumer, await toJSONAsync(value))).value !== 'works') {
+	throw new Error('Async utility export failure');
+}
 `);
 	writeFileSync(join(temporary, 'tsconfig.json'), JSON.stringify({
 		compilerOptions: {

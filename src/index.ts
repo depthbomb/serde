@@ -1330,3 +1330,7 @@ export async function serializeArrayAsync<V extends object>(instances: V[], path
 	}
 	return Promise.all(instances.map((instance, index) => serializeAsync(instance, `${path}[${index}]`, options)));
 }
+
+export { clone, patch, toJSON, fromJSON, toJSONAsync, fromJSONAsync } from './utilities';
+export type { IPatchOptions } from './utilities';
+export { SerializationError, SerializationErrorCode } from './errors';
