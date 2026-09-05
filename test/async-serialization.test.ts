@@ -110,3 +110,108 @@ test('async transforms normalize unsupported input before serialization', async 
 	});
 	expect(() => serialize(new Bytes())).toThrow('unmarked class');
 });
+
+test('async traversal invokes each transform once on a deep chain', async () => {
+	let calls = 0;
+	@Serializable()
+	class Node {
+		@JSONProperty({
+			serializeTransform: (value: number) => {
+				calls++;
+
+				return value;
+			},
+		})
+		public value = 1;
+
+		@JSONProperty({ type: () => Node })
+		public child?: Node;
+	}
+	const root = new Node();
+	let tail   = root;
+	for (let index = 1; index < 256; index++) {
+		tail.child = new Node();
+		tail       = tail.child;
+	}
+	const expected = serialize(root);
+	calls = 0;
+
+	expect(await serializeAsync(root)).toEqual(expected);
+	expect(calls).toBe(256);
+});
+
+test('async output cycles are rejected and escaped keys remain safe', async () => {
+	@Serializable()
+	class Model {
+		@JSONProperty({
+			name: '__proto__',
+			serializeAsyncTransform: async (value: object) => value,
+		})
+		public value = {} as object;
+	}
+	const instance = new Model();
+	const result   = await serializeAsync(instance);
+
+	expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+	expect(Object.hasOwn(result, '__proto__')).toBe(true);
+	instance.value = instance;
+	await expect(serializeAsync(instance)).rejects.toMatchObject({
+		code: 'CIRCULAR_REFERENCE',
+		path: '$.__proto__',
+	});
+});
+
+test('async normalization includes class instances produced by codecs', async () => {
+	@Serializable()
+	class WireValue {
+		@JSONProperty({ serializeAsyncTransform: async (value: string) => value.toUpperCase() })
+		public text = 'wire';
+	}
+	@Serializable()
+	class Model {
+		@JSONProperty({
+			codec: {
+				serialize:   () => new WireValue(),
+				deserialize: () => 1,
+			},
+		})
+		public value = 1;
+	}
+
+	expect(await serializeAsync(new Model())).toEqual({
+		value: {
+			text: 'WIRE',
+		},
+	});
+});
+
+test('async collection conversion preserves codecs and validates collection shapes', async () => {
+	const codec = {
+		serialize:   (value: number) => String(value),
+		deserialize: (value: unknown) => Number(value),
+	};
+	@Serializable()
+	class Model {
+		@JSONProperty({
+			codec,
+			isMap: true,
+		})
+		public map = new Map([['key', 1]]);
+
+		@JSONProperty({
+			codec,
+			isSet: true,
+		})
+		public set = new Set([2]);
+	}
+	const instance = new Model();
+
+	expect(await serializeAsync(instance)).toEqual(serialize(instance));
+	Object.assign(instance, {
+		map: {},
+	});
+	await expect(serializeAsync(instance)).rejects.toMatchObject({
+		code: 'INVALID_COLLECTION',
+		path: '$.map',
+	});
+});

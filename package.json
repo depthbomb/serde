@@ -41,6 +41,7 @@
 		"lint": "eslint ./src --ext .ts",
 		"test:unit": "vitest run",
 		"test:package": "yarn dist && node test/package-smoke.mjs",
+		"bench": "yarn dist && node bench/serde.mjs",
 		"test": "yarn test:unit",
 		"check": "yarn build && yarn typecheck:test && yarn lint && yarn test && yarn test:package"
 	},

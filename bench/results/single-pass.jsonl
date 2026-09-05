@@ -1,0 +1,19 @@
+{"modulePath":"C:\\Users\\reese\\Documents\\Projects\\.ts\\@depthbomb\\serde\\dist\\index.mjs","node":"v24.17.0","cpu":"Intel(R) Core(TM) i7-9700K CPU @ 3.60GHz","platform":"win32","samples":5,"minimumSampleMs":100}
+{"depth":32,"syncConversions":32,"asyncConversions":32}
+{"depth":64,"syncConversions":64,"asyncConversions":64}
+{"depth":128,"syncConversions":128,"asyncConversions":128}
+{"depth":256,"syncConversions":256,"asyncConversions":256}
+{"name":"flat8 serialize","medianUs":0.681,"minUs":0.656,"maxUs":0.776}
+{"name":"flat8 serializeAsync","medianUs":1.079,"minUs":1.05,"maxUs":1.136}
+{"name":"flat8 deserialize","medianUs":1.055,"minUs":1.039,"maxUs":1.156}
+{"name":"flat8 deserializeAsync","medianUs":3.618,"minUs":3.546,"maxUs":3.935}
+{"name":"order20 serialize","medianUs":38.717,"minUs":37.985,"maxUs":39.702}
+{"name":"order20 serializeAsync","medianUs":45.815,"minUs":44.229,"maxUs":47.541}
+{"name":"order20 deserialize","medianUs":24.915,"minUs":24.316,"maxUs":27.528}
+{"name":"order20 deserializeAsync","medianUs":63.345,"minUs":59.368,"maxUs":64.766}
+{"name":"chain64 serialize","medianUs":33.563,"minUs":33.138,"maxUs":35.751}
+{"name":"chain64 serializeAsync","medianUs":47.406,"minUs":47.096,"maxUs":48.938}
+{"name":"chain128 serialize","medianUs":68.112,"minUs":67.274,"maxUs":70.586}
+{"name":"chain128 serializeAsync","medianUs":96.302,"minUs":93.275,"maxUs":97.658}
+{"name":"chain256 serialize","medianUs":139.594,"minUs":138.151,"maxUs":141.643}
+{"name":"chain256 serializeAsync","medianUs":198.076,"minUs":196.711,"maxUs":201.789}
