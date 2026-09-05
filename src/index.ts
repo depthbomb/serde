@@ -870,11 +870,8 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 				map.set(k, convertValue(v, NestedCtor, () => childPath(getPath(), k), metaOptions.codec));
 			}
 
-			(instance as PlainObj)[propertyKey] = map;
-			continue;
-		}
-
-		if (metaOptions.isSet) {
+			rawValue = map;
+		} else if (metaOptions.isSet) {
 			if (!Array.isArray(rawValue)) {
 				throw new SerializationError(`Expected array for set property "${jsonKey}"`, getPath(), SerializationErrorCode.NOT_AN_ARRAY);
 			}
@@ -884,11 +881,8 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 				set.add(convertValue(rawValue[i], NestedCtor, () => `${getPath()}[${i}]`, metaOptions.codec));
 			}
 
-			(instance as PlainObj)[propertyKey] = set;
-			continue;
-		}
-
-		if (metaOptions.isArray) {
+			rawValue = set;
+		} else if (metaOptions.isArray) {
 			if (!Array.isArray(rawValue)) {
 				throw new SerializationError(`Expected array for property "${jsonKey}"`, getPath(), SerializationErrorCode.NOT_AN_ARRAY);
 			}
