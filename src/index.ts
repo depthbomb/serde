@@ -173,6 +173,14 @@ function setObjectKey(obj: PlainObj, key: string, value: unknown): void {
 	obj[key] = value;
 }
 
+function serializeDate(value: Date, pathGetter: () => string): string {
+	try {
+		return value.toISOString();
+	} catch (cause) {
+		throw new SerializationError('Expected a valid Date', pathGetter(), SerializationErrorCode.TYPE_MISMATCH, cause);
+	}
+}
+
 function serializeValue(v: unknown, pathGetter: () => string, codec: JSONCodec | null, options: ISerializeOptions, active: WeakSet<object>): unknown {
 	if (v === null || v === undefined) return v;
 	if (codec) {
@@ -183,7 +191,9 @@ function serializeValue(v: unknown, pathGetter: () => string, codec: JSONCodec |
 		}
 	}
 	if (v === null || v === undefined) return v;
-	if (v instanceof Date) return v.toISOString();
+	if (v instanceof Date) {
+		return serializeDate(v, pathGetter);
+	}
 	if (v instanceof URL) return v.toString();
 	if (typeof v === 'bigint') return v.toString();
 	if (Array.isArray(v)) {
@@ -1169,7 +1179,9 @@ export async function serializeAsync<V extends object>(instance: V, _path = '$',
 	const normalize = async (value: unknown, path: string): Promise<unknown> => {
 		if (value === null || value === undefined || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
 		if (typeof value === 'bigint') return value.toString();
-		if (value instanceof Date) return value.toISOString();
+		if (value instanceof Date) {
+			return serializeDate(value, () => path);
+		}
 		if (value instanceof URL) return value.toString();
 		if (typeof value !== 'object') return value;
 		if (active.has(value)) throw new SerializationError('Cannot serialize a circular object graph', path, SerializationErrorCode.CIRCULAR_REFERENCE);
