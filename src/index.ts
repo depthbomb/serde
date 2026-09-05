@@ -1148,7 +1148,12 @@ export async function serializeAsync<V extends object>(instance: V, _path = '$',
 		try {
 			if (isSerializable(value.constructor as Constructor)) return await serializeAsync(value, path, options);
 			if (Array.isArray(value) || value instanceof Set) {
-				return await Promise.all(Array.from(value).map((item, index) => normalize(item, `${path}[${index}]`)));
+				const items = [] as unknown[];
+				for (const item of value) {
+					items.push(await normalize(item, `${path}[${items.length}]`));
+				}
+
+				return items;
 			}
 			if (value instanceof Map) {
 				const object = Object.create(null) as PlainObj;
