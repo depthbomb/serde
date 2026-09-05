@@ -3,6 +3,7 @@ import { SerializationError, SerializationErrorCode } from './errors';
 type AnyFn    = Constructor & Record<PropertyKey, unknown>;
 type PlainObj = Record<string, unknown>;
 type AnyEnum  = Record<string, string | number>;
+type DeserializationAssignments = WeakMap<object, Set<string>>;
 
 interface IPropertyMeta<V = unknown> {
 	propertyKey: string;
@@ -702,7 +703,7 @@ export function JSONVersion(current: number, options: IJSONVersionOptions = {}):
 	};
 }
 
-export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _path = '$', options: IDeserializeOptions = {}): V {
+function deserializeInternal<V>(ctor: Constructor<V>, data: PlainObj | string, _path: string, options: IDeserializeOptions, assignments?: DeserializationAssignments): V {
 	let raw = (typeof data === 'string' ? parseJSON(data, _path) : data) as PlainObj;
 	if (raw === null || raw === undefined) {
 		throw new SerializationError('Cannot deserialize null/undefined', _path, SerializationErrorCode.NULL_INPUT);
@@ -750,7 +751,7 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 				throw new SerializationError(`Missing discriminator field "${discField}"`, childPath(_path, discField), SerializationErrorCode.MISSING_DISCRIMINATOR);
 			}
 			if (fallback !== ctor) {
-				return deserialize(fallback, raw, _path, options);
+				return deserializeInternal(fallback, raw, _path, options, assignments);
 			}
 		} else if (subtypes) {
 			const sub = subtypes.get(discValue);
@@ -760,7 +761,7 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 
 			// avoid recursion if the resolved subtype is the same constructor
 			if (sub !== ctor) {
-				return deserialize(sub, raw, _path, options);
+				return deserializeInternal(sub, raw, _path, options, assignments);
 			}
 		}
 	}
@@ -803,7 +804,7 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 			throw new SerializationError(`Expected object for nested type "${(ctorOrEnum as Constructor).name || 'Object'}"`, typeof path === 'function' ? path() : path, SerializationErrorCode.TYPE_MISMATCH);
 		}
 
-		return deserialize(ctorOrEnum as Constructor, val as PlainObj, typeof path === 'function' ? path() : path, options);
+		return deserializeInternal(ctorOrEnum as Constructor, val as PlainObj, typeof path === 'function' ? path() : path, options, assignments);
 	}
 
 	const seenKeys = new Set<string>();
@@ -820,6 +821,11 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 	} catch (cause) {
 		throw new SerializationError(`Constructor for "${ctor.name || 'Object'}" failed`, _path, SerializationErrorCode.CONSTRUCTION_FAILED, cause);
 	}
+	const assignedProperties = assignments ? new Set<string>() : undefined;
+	if (assignedProperties) {
+		assignments?.set(instance as object, assignedProperties);
+	}
+
 	const metas = allMetas(ctor);
 	for (const meta of metas) {
 		const { propertyKey, options: metaOptions, explicitName } = meta;
@@ -848,6 +854,7 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 					throw new SerializationError(typeof vResult === 'string' ? vResult : `Validation failed for property "${jsonKey}"`, getPath(), SerializationErrorCode.VALIDATION_FAILED);
 				}
 				(instance as PlainObj)[propertyKey] = def;
+				assignedProperties?.add(propertyKey);
 				continue;
 			}
 
@@ -924,6 +931,7 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
 		}
 
 		(instance as PlainObj)[propertyKey] = rawValue;
+		assignedProperties?.add(propertyKey);
 	}
 
 	const unknownMode = options.unknownProperties ?? (options.strict ? 'error' : 'ignore');
@@ -954,6 +962,10 @@ export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, _p
  * @example
  * const users = deserializeArray(User, '[{"first_name":"Ada",...}]');
  */
+export function deserialize<V>(ctor: Constructor<V>, data: PlainObj | string, path = '$', options: IDeserializeOptions = {}): V {
+	return deserializeInternal(ctor, data, path, options);
+}
+
 export function deserializeArray<V>(ctor: Constructor<V>, data: PlainObj[] | string, path = '$', options: IDeserializeOptions = {}): V[] {
 	const raw = typeof data === 'string' ? (parseJSON(data, path) as PlainObj[]) : data;
 	if (!Array.isArray(raw)) {
@@ -1083,10 +1095,16 @@ function serializeInternal<V extends object>(instance: V, _path: string, options
 
 /** Deserialize and then run async property transforms and validators recursively. */
 export async function deserializeAsync<V>(ctor: Constructor<V>, data: PlainObj | string, _path = '$', options: IDeserializeOptions = {}): Promise<V> {
-	const instance = deserialize(ctor, data, _path, options);
+	const assignments = new WeakMap<object, Set<string>>();
+	const instance    = deserializeInternal(ctor, data, _path, options, assignments);
 
 	const applyAsync = async (value: object, path: string): Promise<void> => {
 		for (const meta of allMetas(value.constructor as Constructor)) {
+			const assignedProperties = assignments.get(value);
+			if (assignedProperties && !assignedProperties.has(meta.propertyKey)) {
+				continue;
+			}
+
 			const jsonKey = meta.explicitName ? meta.options.name : (options.namingStrategy ? options.namingStrategy(meta.propertyKey) : meta.options.name);
 			const valuePath = childPath(path, jsonKey);
 			let current = (value as PlainObj)[meta.propertyKey];
