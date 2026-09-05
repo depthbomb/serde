@@ -432,7 +432,7 @@ export function getEnumValues(enumObj: Record<string, string | number>): (string
 
 	const values = new Set<string | number>();
 	for (const [k, v] of Object.entries(enumObj)) {
-		if (typeof v === 'string' && /^\d+$/.test(k) && enumObj[v] === Number(k)) {
+		if (typeof v === 'string' && String(Number(k)) === k && enumObj[v] === Number(k)) {
 			continue;
 		}
 		if (typeof v === 'string' || typeof v === 'number') {
