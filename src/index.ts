@@ -640,7 +640,30 @@ export function generateJSONSchema(ctor: Constructor, namingStrategy?: NamingStr
 			properties[jsonKey] = schema;
 			if (!meta.options.optional && meta.options.defaultValue === undefined) required.push(jsonKey);
 		}
-		const schema = { type: 'object', properties, additionalProperties: false, ...(required.length ? { required } : {}) };
+		const version = (target as AnyFn)[V] as { current: number; field: string } | undefined;
+		if (version) {
+			properties[version.field] = {
+				type:  'integer',
+				const: version.current,
+			};
+			required.push(version.field);
+		}
+
+		const discriminator = (target as AnyFn)[D] as string | undefined;
+		if (discriminator) {
+			const subtypes = (target as AnyFn)[T] as Map<string, Constructor> | undefined;
+			const values   = Array.from(subtypes ?? []).filter(([, subtype]) => subtype === target).map(([value]) => value);
+			properties[discriminator] = {
+				...properties[discriminator] as PlainObj,
+				type: 'string',
+				...(values.length ? { enum: values } : {}),
+			};
+			if (values.length || !(target as AnyFn)[F]) {
+				required.push(discriminator);
+			}
+		}
+
+		const schema = { type: 'object', properties, additionalProperties: false, ...(required.length ? { required: [...new Set(required)] } : {}) };
 		definitions[name] = schema;
 		building.delete(target);
 		return schema;
