@@ -45,18 +45,19 @@
 		"check": "yarn build && yarn typecheck:test && yarn lint && yarn test && yarn test:package"
 	},
 	"devDependencies": {
-		"@eslint/eslintrc": "^3.3.6",
+		"@eslint/eslintrc": "^3.3.7",
 		"@eslint/js": "^10.0.1",
 		"@types/eslint": "^9.6.1",
 		"@types/node": "^24.13.3",
-		"@typescript-eslint/eslint-plugin": "^8.67.0",
-		"@typescript-eslint/parser": "^8.67.0",
-		"eslint": "^10.8.1",
-		"globals": "^17.11.0",
+		"@typescript-eslint/eslint-plugin": "^8.69.0",
+		"@typescript-eslint/parser": "^8.69.0",
+		"eslint": "^10.10.0",
+		"globals": "^17.12.0",
 		"release-it": "^21.0.2",
-		"tsdown": "^0.22.14",
-		"typescript": "^6.0.0",
-		"vitest": "^4.1.10"
+		"tsdown": "^0.23.0",
+		"typescript": "^6.0.3",
+		"vite": "^8.2.2",
+		"vitest": "^5.0.0"
 	},
 	"packageManager": "yarn@4.18.0"
 }
