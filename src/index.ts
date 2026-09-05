@@ -599,6 +599,25 @@ export function getJSONProperties(ctor: Constructor, namingStrategy?: NamingStra
 export function generateJSONSchema(ctor: Constructor, namingStrategy?: NamingStrategy): Record<string, unknown> {
 	const definitions: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
 	const building = new Set<Constructor>();
+	const names    = new Map<Constructor, string>();
+	const used     = new Set<string>();
+	const definitionName = (target: Constructor): string => {
+		const existing = names.get(target);
+		if (existing) {
+			return existing;
+		}
+
+		const base = (target.name || 'Anonymous').replace(/[^A-Za-z0-9_$.-]/g, '_');
+		let name   = base;
+		let suffix = 2;
+		while (used.has(name)) {
+			name = `${base}_${suffix++}`;
+		}
+		names.set(target, name);
+		used.add(name);
+
+		return name;
+	};
 
 	const valueSchema = (meta: IPropertyMeta): Record<string, unknown> => {
 		if (meta.options.codec?.schema) {
@@ -615,11 +634,11 @@ export function generateJSONSchema(ctor: Constructor, namingStrategy?: NamingStr
 		if (type === URL) return { type: 'string', format: 'uri' };
 		if (type === ctor && building.has(type)) return { $ref: '#' };
 		buildDefinition(type as Constructor);
-		return { $ref: `#/$defs/${(type as Constructor).name || 'Anonymous'}` };
+		return { $ref: `#/$defs/${definitionName(type as Constructor)}` };
 	};
 
 	const buildDefinition = (target: Constructor): Record<string, unknown> => {
-		const name = target.name || 'Anonymous';
+		const name = definitionName(target);
 		if (definitions[name]) return definitions[name] as Record<string, unknown>;
 		if (building.has(target)) return { $ref: `#/$defs/${name}` };
 		building.add(target);
@@ -670,7 +689,7 @@ export function generateJSONSchema(ctor: Constructor, namingStrategy?: NamingStr
 	};
 
 	const root = buildDefinition(ctor);
-	const rootName = ctor.name || 'Anonymous';
+	const rootName = definitionName(ctor);
 	delete definitions[rootName];
 	return {
 		$schema: 'https://json-schema.org/draft/2020-12/schema',
