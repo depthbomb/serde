@@ -848,7 +848,7 @@ function deserializeInternal<V>(ctor: Constructor<V>, data: PlainObj | string, _
 				if (vResult === false || typeof vResult === 'string') {
 					throw new SerializationError(typeof vResult === 'string' ? vResult : `Validation failed for property "${jsonKey}"`, getPath(), SerializationErrorCode.VALIDATION_FAILED);
 				}
-				(instance as PlainObj)[propertyKey] = def;
+				setObjectKey(instance as PlainObj, propertyKey, def);
 				assignedProperties?.add(propertyKey);
 				continue;
 			}
@@ -865,7 +865,7 @@ function deserializeInternal<V>(ctor: Constructor<V>, data: PlainObj | string, _
 			}
 
 			if (metaOptions.nullable === 'null') {
-				(instance as PlainObj)[propertyKey] = null;
+				setObjectKey(instance as PlainObj, propertyKey, null);
 			}
 			continue;
 		}
@@ -926,7 +926,7 @@ function deserializeInternal<V>(ctor: Constructor<V>, data: PlainObj | string, _
 			throw new SerializationError(typeof vResult === 'string' ? vResult : `Validation failed for property "${jsonKey}"`, getPath(), SerializationErrorCode.VALIDATION_FAILED);
 		}
 
-		(instance as PlainObj)[propertyKey] = rawValue;
+		setObjectKey(instance as PlainObj, propertyKey, rawValue);
 		assignedProperties?.add(propertyKey);
 	}
 
@@ -976,7 +976,7 @@ function serializeInternal<V extends object>(instance: V, _path: string, options
 
 	const ctor = instance.constructor as Constructor<V>;
 	if (!isSerializable(ctor)) {
-		throw new SerializationError(`Cannot serialize instance of unmarked class "${ctor.name || 'Object'}"`, _path, SerializationErrorCode.UNMARKED_CLASS);
+		throw new SerializationError(`Cannot serialize instance of unmarked class "${ctor?.name || 'Object'}"`, _path, SerializationErrorCode.UNMARKED_CLASS);
 	}
 
 	if (active.has(instance)) {
@@ -1573,8 +1573,8 @@ export async function deserializeAsync<V>(ctor: Constructor<V>, data: PlainObj |
 
 			if (meta.hasDeserializeAsyncTransform) {
 				try {
-					current                               = await meta.options.deserializeAsyncTransform(current as never);
-					(value as PlainObj)[meta.propertyKey] = current;
+					current = await meta.options.deserializeAsyncTransform(current as never);
+					setObjectKey(value as PlainObj, meta.propertyKey, current);
 				} catch (cause) {
 					throw new SerializationError(`Async deserialization transform failed for property "${jsonKey}"`, valuePath, SerializationErrorCode.TRANSFORM_FAILED, cause);
 				}
