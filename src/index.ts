@@ -790,7 +790,14 @@ function deserializeInternal<V>(ctor: Constructor<V>, data: PlainObj | string, _
 		}
 
 		if (isPrim(ctorOrEnum as Constructor)) {
-			return coercePrim(val, ctorOrEnum as Constructor, path);
+			try {
+				return coercePrim(val, ctorOrEnum as Constructor, path);
+			} catch (cause) {
+				if (cause instanceof SerializationError) {
+					throw cause;
+				}
+				throw new SerializationError(`Conversion to "${(ctorOrEnum as Constructor).name}" failed`, typeof path === 'function' ? path() : path, SerializationErrorCode.TYPE_MISMATCH, cause);
+			}
 		}
 
 		// at this point we expect an object that will be recursively deserialized
