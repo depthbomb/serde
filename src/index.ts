@@ -1505,7 +1505,8 @@ export function JSONDiscriminator<T = unknown>(field: string, options: IJSONDisc
  */
 export function JSONSubType<V>(value: string, ctor: Constructor<V>): ClassDecorator {
 	return (target) => {
-		const map = ((target as AnyFn)[T] as Map<string, Constructor>) ?? new Map<string, Constructor>();
+		const inherited = (target as AnyFn)[T] as Map<string, Constructor> | undefined;
+		const map       = Object.prototype.hasOwnProperty.call(target, T) && inherited ? inherited : new Map(inherited);
 		map.set(value, ctor);
 		(target as AnyFn)[T] = map;
 	};
