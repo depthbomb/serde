@@ -659,7 +659,7 @@ function resolveType<V>(options: Required<IJSONPropertyOptions<V>>): Constructor
 	return t as any;
 }
 
-function resolveDefault<V>(options: Required<IJSONPropertyOptions<V>>, path: string): V | undefined {
+function resolveDefault<V>(options: Required<IJSONPropertyOptions<V>>, getPath: () => string): V | undefined {
 	if (options.defaultValue === undefined) {
 		return undefined;
 	}
@@ -669,7 +669,7 @@ function resolveDefault<V>(options: Required<IJSONPropertyOptions<V>>, path: str
 			? (options.defaultValue as () => V)()
 			: options.defaultValue;
 	} catch (cause) {
-		throw new SerializationError('Default value factory failed', path, SerializationErrorCode.TRANSFORM_FAILED, cause);
+		throw new SerializationError('Default value factory failed', getPath(), SerializationErrorCode.TRANSFORM_FAILED, cause);
 	}
 }
 
@@ -801,14 +801,15 @@ function deserializeInternal<V>(ctor: Constructor<V>, data: PlainObj | string, _
 		return deserializeInternal(ctorOrEnum as Constructor, val as PlainObj, typeof path === 'function' ? path() : path, options, assignments);
 	}
 
-	const seenKeys = new Set<string>();
+	const unknownMode = options.unknownProperties ?? (options.strict ? 'error' : 'ignore');
+	const seenKeys    = unknownMode === 'ignore' ? undefined : new Set<string>();
 
 	if (versionConfig) {
-		seenKeys.add(versionConfig.field);
+		seenKeys?.add(versionConfig.field);
 	}
 
 	if (discField) {
-		seenKeys.add(discField);
+		seenKeys?.add(discField);
 	}
 	let instance: V;
 	try {
@@ -826,17 +827,21 @@ function deserializeInternal<V>(ctor: Constructor<V>, data: PlainObj | string, _
 		const { propertyKey, options: metaOptions, explicitName } = meta;
 		const jsonKey                                             = explicitName ? metaOptions.name : (options.namingStrategy ? options.namingStrategy(propertyKey) : metaOptions.name);
 		const getPath                                             = () => childPath(_path, jsonKey);
-		const inputKey                                            = [jsonKey, ...metaOptions.aliases].find(key => Object.prototype.hasOwnProperty.call(raw, key));
-		const hasKey                                              = inputKey !== undefined;
-
-		seenKeys.add(jsonKey);
-		for (const alias of metaOptions.aliases) {
-			seenKeys.add(alias);
+		let inputKey: string | undefined = jsonKey;
+		if (!Object.prototype.hasOwnProperty.call(raw, jsonKey)) {
+			inputKey = metaOptions.aliases.find(key => Object.prototype.hasOwnProperty.call(raw, key));
 		}
 
-		let rawValue = hasKey ? raw[inputKey] : undefined;
+		if (seenKeys) {
+			seenKeys.add(jsonKey);
+			for (const alias of metaOptions.aliases) {
+				seenKeys.add(alias);
+			}
+		}
+
+		let rawValue = inputKey === undefined ? undefined : raw[inputKey];
 		if (rawValue === undefined) {
-			const def = resolveDefault(metaOptions, getPath());
+			const def = resolveDefault(metaOptions, getPath);
 			if (def !== undefined) {
 				let vResult: boolean | string | void;
 				try {
@@ -930,8 +935,7 @@ function deserializeInternal<V>(ctor: Constructor<V>, data: PlainObj | string, _
 		assignedProperties?.add(propertyKey);
 	}
 
-	const unknownMode = options.unknownProperties ?? (options.strict ? 'error' : 'ignore');
-	if (unknownMode !== 'ignore') {
+	if (seenKeys) {
 		const unknown = Object.create(null) as PlainObj;
 		for (const k of Object.keys(raw)) {
 			if (!seenKeys.has(k)) {
@@ -1548,28 +1552,45 @@ export async function deserializeAsync<V>(ctor: Constructor<V>, data: PlainObj |
 	const instance    = deserializeInternal(ctor, data, _path, options, assignments);
 
 	const applyAsync = async (value: object, path: string): Promise<void> => {
+		const assignedProperties = assignments.get(value);
 		for (const meta of allMetas(value.constructor as Constructor)) {
-			const assignedProperties = assignments.get(value);
 			if (assignedProperties && !assignedProperties.has(meta.propertyKey)) {
+				continue;
+			}
+
+			let current = (value as PlainObj)[meta.propertyKey];
+			if ((current === null || typeof current !== 'object') && !meta.hasDeserializeAsyncTransform && !meta.hasValidateAsync) {
 				continue;
 			}
 
 			const jsonKey   = meta.explicitName ? meta.options.name : (options.namingStrategy ? options.namingStrategy(meta.propertyKey) : meta.options.name);
 			const valuePath = childPath(path, jsonKey);
-			const recurse = async (item: unknown, itemPath: string): Promise<void> => {
-				if (item && typeof item === 'object' && isSerializable(item.constructor as Constructor)) {
-					await applyAsync(item, itemPath);
+			if (Array.isArray(current) || current instanceof Set) {
+				const pending = [] as Promise<void>[];
+				let index     = 0;
+				for (const item of current) {
+					if (item && typeof item === 'object' && isSerializable(item.constructor as Constructor)) {
+						pending.push(applyAsync(item, `${valuePath}[${index}]`));
+					}
+					index++;
 				}
-			};
-			let current = (value as PlainObj)[meta.propertyKey];
-			if (Array.isArray(current)) {
-				await Promise.all(current.map((item, index) => recurse(item, `${valuePath}[${index}]`)));
-			} else if (current instanceof Set) {
-				await Promise.all(Array.from(current).map((item, index) => recurse(item, `${valuePath}[${index}]`)));
+
+				if (pending.length) {
+					await Promise.all(pending);
+				}
 			} else if (current instanceof Map) {
-				await Promise.all(Array.from(current, ([key, item]) => recurse(item, childPath(valuePath, String(key)))));
-			} else {
-				await recurse(current, valuePath);
+				const pending = [] as Promise<void>[];
+				for (const [key, item] of current) {
+					if (item && typeof item === 'object' && isSerializable(item.constructor as Constructor)) {
+						pending.push(applyAsync(item, childPath(valuePath, String(key))));
+					}
+				}
+
+				if (pending.length) {
+					await Promise.all(pending);
+				}
+			} else if (current && typeof current === 'object' && isSerializable(current.constructor as Constructor)) {
+				await applyAsync(current, valuePath);
 			}
 
 			if (meta.hasDeserializeAsyncTransform) {

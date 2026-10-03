@@ -13,8 +13,9 @@ class Item {}
 class Order {}
 class Chain {}
 class CountedChain {}
+class ScalarCollections {}
 
-for (const ctor of [Flat, Item, Order, Chain, CountedChain]) {
+for (const ctor of [Flat, Item, Order, Chain, CountedChain, ScalarCollections]) {
 	Serializable()(ctor);
 }
 
@@ -57,6 +58,18 @@ JSONProperty({
 JSONProperty({
 	type: CountedChain,
 })(CountedChain.prototype, 'child');
+JSONProperty({
+	type:    Number,
+	isArray: true,
+})(ScalarCollections.prototype, 'array');
+JSONProperty({
+	type:  Number,
+	isSet: true,
+})(ScalarCollections.prototype, 'set');
+JSONProperty({
+	type:  Number,
+	isMap: true,
+})(ScalarCollections.prototype, 'map');
 
 
 const flat = Object.assign(new Flat(), {
@@ -80,6 +93,14 @@ const order = Object.assign(new Order(), {
 		created:  new Date('2026-09-01T12:00:00Z'),
 	})),
 	totals: new Map([['subtotal', 2625], ['tax', 210]]),
+});
+const scalars = Array.from({
+	length: 1024,
+}, (_, index) => index);
+const scalarCollections = Object.assign(new ScalarCollections(), {
+	array: scalars,
+	set:   new Set(scalars),
+	map:   new Map(scalars.map(value => [String(value), value])),
 });
 
 function makeChain(ctor, depth) {
@@ -156,7 +177,7 @@ for (const depth of [32, 64, 128, 256]) {
 	}));
 }
 
-for (const [name, ctor, value] of [['flat8', Flat, flat], ['order20', Order, order]]) {
+for (const [name, ctor, value] of [['flat8', Flat, flat], ['order20', Order, order], ['scalars1024', ScalarCollections, scalarCollections]]) {
 	const raw = serialize(value);
 	assert.deepEqual(await serializeAsync(value), raw);
 	assert.deepEqual(await deserializeAsync(ctor, raw), deserialize(ctor, raw));
@@ -164,10 +185,19 @@ for (const [name, ctor, value] of [['flat8', Flat, flat], ['order20', Order, ord
 	await benchmark(`${name} serializeAsync`, () => serializeAsync(value), true);
 	await benchmark(`${name} deserialize`, () => deserialize(ctor, raw), false);
 	await benchmark(`${name} deserializeAsync`, () => deserializeAsync(ctor, raw), true);
+	const strict = {
+		strict: true,
+	};
+	assert.deepEqual(deserialize(ctor, raw, '$', strict), deserialize(ctor, raw));
+	await benchmark(`${name} deserialize strict`, () => deserialize(ctor, raw, '$', strict), false);
 }
 
 for (const depth of [64, 128, 256]) {
 	const value = makeChain(Chain, depth);
 	await benchmark(`chain${depth} serialize`, () => serialize(value), false);
 	await benchmark(`chain${depth} serializeAsync`, () => serializeAsync(value), true);
+	const raw = serialize(value);
+	assert.deepEqual(await deserializeAsync(Chain, raw), deserialize(Chain, raw));
+	await benchmark(`chain${depth} deserialize`, () => deserialize(Chain, raw), false);
+	await benchmark(`chain${depth} deserializeAsync`, () => deserializeAsync(Chain, raw), true);
 }
